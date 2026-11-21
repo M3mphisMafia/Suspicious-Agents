@@ -1,0 +1,15 @@
+# On-demand ARTEX-shaped attack from a fresh AWS IP against our own Northwind store.
+# One-shot:   aws codebuild start-build --project-name undertow-attack-sim \
+#               --environment-variables-override name=TARGET,value=https://<dist>.cloudfront.net
+# Ramp (governor): also pass name=ARTEX_DURATION,value=1800 and change the level live:
+#               aws ssm put-parameter --name /undertow/artex/level --type String --overwrite --value 4
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.14
+    commands:
+      - pip install -q boto3
+  build:
+    commands:
+      - python -m store.artex "$TARGET"

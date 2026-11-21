@@ -1,0 +1,38 @@
+name: tests
+
+# Unit tests and the offline detection eval on every push and pull request. Runs on GitHub only;
+# the deploy pipeline has no test stage.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.14"]   # the Lambda runtime
+    steps:
+      # Actions pinned to release commits (checkout v7.0.1, setup-python v7.1.0).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install -e '.[test,aws]'
+      - name: Unit tests
+        run: python -m pytest -q
+      - name: Detection eval (0 missed attacks, 0 hard false positives)
+        run: python -m evals.harness

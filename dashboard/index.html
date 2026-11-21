@@ -1,0 +1,2295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Undertow Security</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #050507;
+  --surface: #0b0b0f;
+  --card: rgba(255, 255, 255, 0.025);
+  --hair: rgba(255, 255, 255, 0.07);
+  --hair-hi: rgba(255, 255, 255, 0.16);
+  --ink: #faf8f3;
+  --ink-2: #ddd9cf;
+  --ink-3: #a9a69c;
+  /* data series: validated for CVD + contrast on #0b0b0f */
+  --s1: #76a016;  /* lime    */
+  --s2: #e8286f;  /* magenta */
+  --s3: #8a70f0;  /* violet  */
+  --s4: #cf5e1c;  /* ember   */
+  /* decorative light only, never data */
+  --glow-lime: #c8ff3e;
+  --glow-mag: #ff2d7a;
+  --glow-vio: #9b86ff;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --r: 14px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+body { min-height: 100vh; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+
+.aurora { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.aurora i { position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%; filter: blur(90px); opacity: .16; }
+.aurora i:nth-child(1) { background: var(--glow-lime); top: -18vmax; left: -10vmax; }
+.aurora i:nth-child(2) { background: var(--glow-mag); bottom: -22vmax; right: -12vmax; opacity: .13; }
+.aurora i:nth-child(3) { background: var(--glow-vio); top: 30%; left: 45%; width: 30vmax; height: 30vmax; opacity: .08; }
+.sheen { position: fixed; inset: -20%; pointer-events: none; z-index: 1;
+  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.045) 49%, rgba(200,255,62,.05) 50%, rgba(255,255,255,.03) 51%, transparent 58%);
+  transform: translateX(-100%); }
+.grain { position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: .05;
+  background-image: radial-gradient(rgba(255,255,255,.6) 1px, transparent 1px); background-size: 3px 3px; }
+@media (prefers-reduced-motion: no-preference) {
+  .aurora i:nth-child(1) { animation: drift1 38s ease-in-out infinite alternate; }
+  .aurora i:nth-child(2) { animation: drift2 46s ease-in-out infinite alternate; }
+  .aurora i:nth-child(3) { animation: drift3 30s ease-in-out infinite alternate; }
+  .sheen { animation: sheen 14s ease-in-out infinite; }
+  .pulse { animation: pulse 2.4s ease-in-out infinite; }
+  .card::after { transition: opacity .6s; }
+}
+@keyframes drift1 { to { transform: translate(18vmax, 12vmax) scale(1.15); } }
+@keyframes drift2 { to { transform: translate(-16vmax, -10vmax) scale(1.1); } }
+@keyframes drift3 { to { transform: translate(-20vmax, 8vmax); } }
+@keyframes sheen { 0%, 78% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(200,255,62,.55); } 50% { box-shadow: 0 0 0 6px rgba(200,255,62,0); } }
+
+.wrap { position: relative; z-index: 2; max-width: 1440px; margin: 0 auto; padding: 22px 28px 40px; }
+header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+.mark { display: flex; align-items: center; gap: 12px; }
+.mark svg { width: 34px; height: 34px; }
+.word { font-weight: 600; font-size: 22px; letter-spacing: .14em; text-transform: uppercase;
+  background: linear-gradient(90deg, var(--ink) 0%, var(--ink) 40%, var(--glow-lime) 50%, var(--ink) 60%, var(--ink) 100%);
+  background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; }
+@media (prefers-reduced-motion: no-preference) { .word { animation: wordsheen 9s ease-in-out infinite; } }
+@keyframes wordsheen { 0%, 70% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+.tag { font-size: 12px; color: var(--ink-3); letter-spacing: .04em; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 8px; font: 500 12px var(--mono); padding: 6px 11px;
+  border: 1px solid var(--hair-hi); border-radius: 999px; color: var(--ink-2); background: rgba(255,255,255,.03); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--glow-lime); }
+.pill.demo { border-color: rgba(255,45,122,.45); color: #ffb3cd; }
+.pill.demo .dot { background: var(--glow-mag); }
+.seg { display: inline-flex; border: 1px solid var(--hair-hi); border-radius: 999px; overflow: hidden; }
+.seg button { font: 500 12px var(--mono); color: var(--ink-3); background: none; border: 0; padding: 6px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { color: var(--bg); background: var(--glow-lime); }
+
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+.card { position: relative; grid-column: span 12; background: var(--card); border: 1px solid var(--hair);
+  border-radius: var(--r); padding: 18px 20px; overflow: hidden; backdrop-filter: blur(6px); }
+.card::before { content: ""; position: absolute; left: 14%; right: 14%; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); }
+.card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(600px circle at var(--mx, 50%) var(--my, 0%), rgba(200,255,62,.07), transparent 40%); }
+.card:hover::after { opacity: 1; }
+.card h2 { margin: 0 0 4px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+.card .sub { margin: 0 0 14px; font-size: 13px; color: var(--ink-2); }
+.c8 { grid-column: span 8; } .c4 { grid-column: span 4; } .c6 { grid-column: span 6; }
+
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 16px; }
+.kpi { padding: 16px 18px; grid-column: auto; }
+.kpi .v { font: 500 30px var(--mono); letter-spacing: -.02em; margin-top: 6px; }
+.kpi .v.hot { color: #ffd0e0; text-shadow: 0 0 22px rgba(255,45,122,.55); }
+.kpi .v.cool { color: #e9ffc2; text-shadow: 0 0 22px rgba(200,255,62,.45); }
+.kpi .d { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.kpi .l { font-size: 12px; color: var(--ink-2); letter-spacing: .04em; }
+
+canvas#stream { width: 100%; height: 280px; display: block; border-radius: 10px; background: rgba(0,0,0,.35); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.ladder { display: grid; gap: 10px; }
+.rung { display: grid; grid-template-columns: 76px 1fr 64px; align-items: center; gap: 12px; font-size: 13px; }
+.rung .n { font: 500 13px var(--mono); text-align: right; color: var(--ink); }
+.rung .bar { height: 10px; border-radius: 4px; background: rgba(255,255,255,.05); overflow: hidden; }
+.rung .bar b { display: block; height: 100%; border-radius: 4px; }
+.rung .what { grid-column: 2 / 4; font-size: 12px; color: var(--ink-3); margin-top: -6px; }
+
+svg.chart { width: 100%; height: 260px; display: block; overflow: visible; }
+.axis text { fill: var(--ink-3); font: 11px var(--mono); }
+.axis line, .grid-l { stroke: rgba(255,255,255,.06); }
+.thr { stroke-dasharray: 3 5; stroke-width: 1; }
+.thr-l { font: 11px var(--mono); }
+.tip { position: absolute; pointer-events: none; z-index: 5; min-width: 180px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(11,11,15,.94); border: 1px solid var(--hair-hi); font-size: 12px; color: var(--ink); opacity: 0; transition: opacity .12s; }
+.tip .t { font: 500 11px var(--mono); color: var(--ink-3); margin-bottom: 6px; }
+.tip .r { display: flex; justify-content: space-between; gap: 14px; }
+.tip .r span:last-child { font-family: var(--mono); }
+
+.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 276px; overflow: auto; }
+.feed li { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(255,255,255,.025); border: 1px solid var(--hair); font-size: 13px; }
+.feed .ago { font: 11px var(--mono); color: var(--ink-3); padding-top: 2px; }
+.feed .route { font-family: var(--mono); font-size: 12px; color: #ffc0d6; word-break: break-all; }
+.feed .meta { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+.badge { display: inline-block; font: 500 10px var(--mono); letter-spacing: .04em; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid rgba(155,134,255,.5); color: #d6ccff; margin-left: 6px; }
+li.fresh { animation: none; }
+@media (prefers-reduced-motion: no-preference) {
+  li.fresh { animation: fresh 1.6s ease-out; }
+}
+@keyframes fresh { from { background: rgba(255,45,122,.18); border-color: rgba(255,45,122,.6); } }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+  padding: 0 10px 10px; border-bottom: 1px solid var(--hair); }
+td { padding: 11px 10px; border-bottom: 1px solid var(--hair); vertical-align: middle; }
+td.m { font-family: var(--mono); font-size: 12px; }
+tr.gone { opacity: 0; transform: translateX(24px); transition: all .5s; }
+.vt { font: 500 11px var(--mono); padding: 3px 8px; border-radius: 999px; }
+dialog.replay { width: min(1100px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; background: var(--card); color: var(--ink);
+  border: 1px solid var(--hair-hi); border-radius: var(--r); padding: 20px 20px 24px; }
+dialog.replay::backdrop { background: rgba(0,0,0,.62); }
+.rp-x { position: absolute; top: 14px; right: 16px; }
+.rp-sum { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; margin: 4px 0 12px; font: 13px var(--sans); color: var(--ink-2); }
+.rp-sum b { color: var(--ink); font: 600 15px var(--mono); }
+.rp-strip { width: 100%; height: 118px; display: block; margin: 6px 0 4px; }
+.rp-cols { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
+@media (max-width: 760px) { .rp-cols { grid-template-columns: 1fr; } }
+tr.clickable { cursor: pointer; } tr.clickable:hover td { background: rgba(255,255,255,.03); }
+.vt.block { color: #ffd0e0; background: rgba(232,40,111,.18); border: 1px solid rgba(232,40,111,.5); }
+.vt.tarpit { color: #ffd6bd; background: rgba(207,94,28,.16); border: 1px solid rgba(207,94,28,.5); }
+button.ub { font: 500 12px var(--sans); color: var(--ink); background: rgba(255,255,255,.04); border: 1px solid var(--hair-hi);
+  padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+button.ub:hover { border-color: var(--glow-lime); color: #e9ffc2; box-shadow: 0 0 18px rgba(200,255,62,.18); }
+button.ub.confirm { border-color: var(--glow-lime); background: rgba(200,255,62,.12); color: #e9ffc2; }
+.sig { color: var(--ink-3); font-size: 12px; }
+
+.det { display: grid; gap: 11px; }
+.det .row { display: grid; grid-template-columns: 1fr 52px; gap: 10px; align-items: center; }
+.det .nm { font: 12px var(--mono); color: var(--ink-2); margin-bottom: 5px; }
+.det .bars { display: flex; gap: 2px; height: 9px; }
+.det .bars b { height: 100%; border-radius: 4px; }
+.det .p { font: 500 13px var(--mono); text-align: right; }
+
+.strips { display: grid; gap: 12px; }
+.strip { display: grid; grid-template-columns: 220px 1fr; gap: 14px; align-items: center; }
+.strip .who { font: 12px var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip { font: 500 11px var(--mono); padding: 5px 9px; border-radius: 7px; border: 1px solid var(--hair-hi); color: var(--ink-2); }
+.chip.hot { border-color: rgba(232,40,111,.6); color: #ffc0d6; box-shadow: inset 0 0 12px rgba(232,40,111,.15); }
+.chip.map { border-color: rgba(138,112,240,.6); color: #d6ccff; }
+.arrow { color: var(--ink-3); font-size: 11px; }
+
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; z-index: 9;
+  background: rgba(11,11,15,.96); border: 1px solid rgba(200,255,62,.45); border-radius: 12px; padding: 12px 16px;
+  font-size: 13px; color: var(--ink); box-shadow: 0 0 40px rgba(200,255,62,.12); transition: all .3s; max-width: calc(100vw - 32px); }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast code { font-family: var(--mono); font-size: 12px; color: #e9ffc2; }
+footer { margin-top: 22px; font-size: 12px; color: var(--ink-3); display: flex; gap: 14px; flex-wrap: wrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.tbl-toggle { float: right; font: 500 11px var(--mono); background: none; border: 1px solid var(--hair-hi); color: var(--ink-3);
+  border-radius: 7px; padding: 3px 8px; cursor: pointer; margin-top: -2px; }
+.hidden { display: none; }
+.seg.ctl button[aria-pressed="true"] { background: var(--glow-mag); color: #fff; }
+.seg.ctl button[data-mode="observe"][aria-pressed="true"], .seg.ctl button[data-edge="block"][aria-pressed="true"] { background: var(--glow-lime); color: var(--bg); }
+.lockbtn { cursor: pointer; }
+.lockbtn.open { border-color: rgba(200,255,62,.6); color: #e9ffc2; }
+.adminp { margin-bottom: 16px; }
+.row-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row-form input, .row-form select { font: 13px var(--mono); color: var(--ink); background: rgba(255,255,255,.04);
+  border: 1px solid var(--hair-hi); border-radius: 8px; padding: 7px 10px; min-width: 0; flex: 1 1 140px; }
+.row-form select { flex: 0 1 auto; }
+.row-form input:focus, .row-form select:focus { outline: none; border-color: var(--glow-lime); box-shadow: 0 0 0 3px rgba(200,255,62,.12); }
+.err { color: #ff9dbf; font-size: 13px; min-height: 18px; margin-top: 6px; }
+svg.spark { width: 100%; height: 90px; display: block; }
+.spark-label { font: 11px var(--mono); color: var(--ink-3); margin-bottom: 4px; }
+.chipsrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+.anom { font: 500 12px var(--mono); padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(232,40,111,.55);
+  color: #ffc0d6; background: rgba(232,40,111,.1); box-shadow: 0 0 18px rgba(255,45,122,.15); }
+.calm { font: 12px var(--mono); color: var(--ink-3); }
+.newag { display: grid; gap: 6px; margin-top: 10px; }
+.newag div { display: flex; justify-content: space-between; gap: 10px; font: 12px var(--mono); color: var(--ink-2);
+  padding: 7px 10px; border: 1px solid var(--hair); border-radius: 8px; }
+.newag div b { color: #d6ccff; font-weight: 500; }
+.wl li { grid-template-columns: 1fr auto; align-items: center; }
+.wl .sc { font: 500 13px var(--mono); color: #d6ccff; }
+.board-head { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; align-items: center; }
+.board-head select { font: 12px var(--mono); color: var(--ink-2); background: rgba(255,255,255,.04); border: 1px solid var(--hair-hi); border-radius: 8px; padding: 4px 8px; text-transform: none; letter-spacing: 0; }
+.board { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 360px; overflow: auto; counter-reset: mv; }
+.board li { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--hair); background: rgba(255,255,255,.02); font-size: 13px; }
+.board .them { color: #ffc0d6; }
+.board .us { color: #e9ffc2; }
+.board .who { font: 11px var(--mono); color: var(--ink-3); margin-top: 3px; }
+.board .empty { color: var(--ink-3); }
+.board li.cert { border-color: rgba(200,255,62,.45); box-shadow: inset 0 0 22px rgba(200,255,62,.06); }
+h3.mini { font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 14px 0 8px; }
+.tune { display: grid; gap: 8px; }
+.tune label { display: grid; grid-template-columns: 1fr 42px; gap: 4px 10px; font: 12px var(--mono); color: var(--ink-2); align-items: center; }
+.tune input[type=range] { grid-column: 1 / 3; width: 100%; accent-color: var(--glow-lime); }
+.tune output { text-align: right; color: var(--ink); }
+.tune label.changed output { color: var(--glow-lime); }
+td .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+button.ub.small { padding: 4px 9px; font-size: 11px; }
+.c6 { grid-column: span 6; }
+.judge-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+.judge-bar .cap { display: inline-flex; align-items: center; gap: 8px; }
+.judge-bar .cap .txt { width: 76px; font: 13px var(--mono); color: var(--ink); background: rgba(255,255,255,.04);
+  border: 1px solid var(--hair-hi); border-radius: 8px; padding: 5px 8px; }
+.jstat { font: 12px var(--mono); color: var(--ink-3); margin-left: auto; }
+.vd { font: 500 11px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--hair-hi); white-space: nowrap; }
+.vd.automated_agent { color: #ffd0e0; border-color: rgba(232,40,111,.55); background: rgba(232,40,111,.14); }
+.vd.likely_agent { color: #ffd6bd; border-color: rgba(207,94,28,.55); background: rgba(207,94,28,.14); }
+.vd.unclear { color: #d6ccff; border-color: rgba(138,112,240,.5); background: rgba(138,112,240,.12); }
+.vd.likely_human { color: #e9ffc2; border-color: rgba(118,160,22,.55); background: rgba(118,160,22,.14); }
+.tq { display: flex; flex-wrap: wrap; gap: 4px; }
+.tq span { font: 10px var(--mono); color: var(--ink-2); padding: 2px 6px; border: 1px solid var(--hair); border-radius: 6px; }
+.inj { font: 500 10px var(--mono); color: #fff; background: var(--glow-mag); padding: 2px 6px; border-radius: 6px; }
+td.why { font-size: 12px; color: var(--ink-2); min-width: 260px; }
+.tabs { display: flex; gap: 4px; margin: -6px 0 16px; border-bottom: 1px solid var(--hair); }
+.tabs button { font: 500 13px var(--sans); letter-spacing: .04em; color: var(--ink-2); background: none; border: 0;
+  border-bottom: 2px solid transparent; padding: 10px 14px; cursor: pointer; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--glow-lime); }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { background: linear-gradient(180deg, transparent 60%, rgba(200,255,62,.08)); }
+.c12 { grid-column: span 12; }
+.subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 16px; padding: 6px; border-radius: 12px; background: rgba(255,255,255,.025); width: fit-content; max-width: 100%; }
+.subtabs button { font: 500 12px var(--sans); color: var(--ink-3); background: none; border: 1px solid transparent; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.subtabs button:hover { color: var(--ink); }
+.subtabs button[aria-current="true"] { color: var(--ink); border-color: var(--hair-hi); background: rgba(255,255,255,.06); }
+.doc { max-width: 820px; }
+.doc h3 { font-size: 14px; font-weight: 600; color: var(--ink); margin: 18px 0 6px; }
+.doc p, .doc li { font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+.doc code { color: var(--glow-lime); font-family: var(--mono); font-size: 12px; }
+.doc ul { margin: 6px 0; padding-left: 18px; }
+.q { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 7px;
+  border: 1px solid var(--hair-hi); border-radius: 50%; color: var(--ink-3); font: 500 10px var(--mono); cursor: help;
+  vertical-align: middle; user-select: none; }
+.q:hover { color: var(--bg); background: var(--glow-lime); border-color: var(--glow-lime); }
+.qpop { position: fixed; z-index: 50; max-width: 300px; background: #16171b; border: 1px solid var(--hair-hi);
+  border-radius: 10px; padding: 11px 13px; font-size: 13px; line-height: 1.5; color: var(--ink); box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+.pill.state { font: 12px var(--mono); }
+.pill.state.on { color: #e9ffc2; border-color: rgba(118,160,22,.6); }
+.pill.state.alarm { color: #ffd0e0; border-color: rgba(255,45,122,.7); box-shadow: 0 0 16px rgba(255,45,122,.35); }
+.cellk.one { grid-template-columns: 1fr 1fr; }
+#view-controls .seg.ctl { margin: 6px 0 14px; flex-wrap: wrap; }
+.who .dot { background: var(--glow-vio); }
+.viewer .admin-only { display: none !important; }
+.viewer .seg.ctl { pointer-events: none; opacity: .55; }
+.role { font: 500 11px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--hair-hi); }
+.role.admin { color: #ffd0e0; border-color: rgba(232,40,111,.5); background: rgba(232,40,111,.12); }
+.role.user { color: #d6ccff; border-color: rgba(138,112,240,.5); background: rgba(138,112,240,.12); }
+.st { font: 11px var(--mono); color: var(--ink-3); }
+.st.warn { color: #ffd6bd; }
+.seg.ctl button[data-edge="cell"][aria-pressed="true"] { background: var(--glow-vio); color: var(--bg); box-shadow: 0 0 22px rgba(155,134,255,.45); }
+.cellk { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 12px; }
+.cellk div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.cellk b { display: block; font: 500 22px var(--mono); color: #e4ddff; text-shadow: 0 0 18px rgba(155,134,255,.45); }
+.cellk span { font-size: 12px; color: var(--ink-3); }
+.cellk b.alarm { color: #ffd0e0; text-shadow: 0 0 18px rgba(255,45,122,.55); }
+.kpis.k4 { grid-template-columns: repeat(4, 1fr); }
+svg.chart .bar:hover { filter: brightness(1.25); }
+td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
+.cst { font: 11px var(--mono); padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.cst.in { color: #e4ddff; border-color: rgba(155,134,255,.6); background: rgba(155,134,255,.14); }
+.cst.quiet { color: var(--ink-3); }
+.seg.ctl button[data-edge="lockdown"][aria-pressed="true"] { background: var(--glow-mag); color: #fff; box-shadow: 0 0 22px rgba(255,45,122,.45); }
+.hint { font-size: 12px; color: var(--ink-3); margin: 6px 0 0; }
+.hint.warn { color: #ffd6bd; }
+.ctl-grid { display: grid; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+.ctl-grid .txt { font: 13px var(--mono); color: var(--ink); background: rgba(255,255,255,.04); border: 1px solid var(--hair-hi);
+  border-radius: 8px; padding: 7px 10px; }
+.ctl-grid .txt:focus { outline: none; border-color: var(--glow-lime); }
+.switch { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch span { flex: 0 0 34px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.12); position: relative; transition: background .2s; }
+.switch span::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform .2s; }
+.switch input:checked + span { background: var(--s1); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.switch input:focus-visible + span { box-shadow: 0 0 0 3px rgba(200,255,62,.3); }
+.subs { margin-top: 12px; display: grid; gap: 6px; }
+.subs div { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--ink-2); padding: 7px 10px;
+  border: 1px solid var(--hair); border-radius: 8px; }
+.subs .pend { color: #ffd6bd; }
+.subs .ok { color: #e9ffc2; }
+
+@media (max-width: 1100px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .kpis.k4 { grid-template-columns: repeat(2, 1fr); }
+  .c8, .c4, .c6 { grid-column: span 12; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 16px; }
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi .v { font-size: 24px; }
+  .strip { grid-template-columns: 1fr; gap: 6px; }
+  .rung { grid-template-columns: 64px 1fr 52px; }
+  td:nth-child(5), th:nth-child(5) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="sheen" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="wrap">
+  <header>
+    <div class="mark">
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M4 14c6-6 10 6 16 0s10 6 16 0" fill="none" stroke="#c8ff3e" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M4 22c6-6 10 6 16 0s10 6 16 0" fill="none" stroke="#f1eee6" stroke-width="2.4" stroke-linecap="round" opacity=".75"/>
+        <path d="M4 30c6-6 10 6 16 0s10 6 16 0" fill="none" stroke="#ff2d7a" stroke-width="2.4" stroke-linecap="round" opacity=".85"/>
+      </svg>
+      <div>
+        <div class="word">Undertow Security</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill demo" id="src"><span class="dot"></span>Demo data</span>
+    <span class="pill state" id="state-pill" title="Enforcement mode and what the edge does"></span>
+    <div class="seg time" role="group" aria-label="Time range">
+      <button data-h="1" aria-pressed="false">1h</button>
+      <button data-h="6" aria-pressed="true">6h</button>
+      <button data-h="24" aria-pressed="false">24h</button>
+    </div>
+    <span class="pill who" id="who" title="Signed in"><span class="dot"></span><span id="who-text">demo</span></span>
+    <button class="pill lockbtn" id="signout">Sign out</button>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" id="tab-overview" aria-selected="true" aria-controls="view-overview">Overview</button>
+    <button role="tab" id="tab-agents" aria-selected="false" aria-controls="view-agents">Agents</button>
+    <button role="tab" id="tab-deception" aria-selected="false" aria-controls="view-deception">Deception</button>
+    <button role="tab" id="tab-controls" aria-selected="false" aria-controls="view-controls">Controls</button>
+    <button role="tab" id="tab-budget" aria-selected="false" aria-controls="view-budget">Budget</button>
+    <button role="tab" id="tab-users" aria-selected="false" aria-controls="view-users" class="admin-only">Users</button>
+    <button role="tab" id="tab-help" aria-selected="false" aria-controls="view-help">Help</button>
+  </nav>
+
+  <section id="view-users" class="view hidden" role="tabpanel" aria-labelledby="tab-users">
+    <div class="grid">
+      <section class="card c4" aria-labelledby="h-invite">
+        <h2 id="h-invite">Invite someone</h2>
+        <p class="sub">The system emails them a one-time password. They choose their own at first sign-in. Nobody else ever sees it.</p>
+        <form id="invite" class="row-form" novalidate>
+          <label class="sr" for="inv-email">Email</label>
+          <input id="inv-email" type="email" placeholder="name@company.com" autocomplete="off">
+          <select id="inv-role" aria-label="Role">
+            <option value="user">User: view only</option>
+            <option value="admin">Admin: everything</option>
+          </select>
+          <button type="submit" class="ub">Send invite</button>
+        </form>
+        <div class="err" id="inv-err"></div>
+        <h3 class="mini">Roles</h3>
+        <p class="hint"><b>Admin</b>: every control, enforcement, tuning, alerts and users.<br><b>User</b>: sees everything, changes nothing.</p>
+      </section>
+      <section class="card c8" aria-labelledby="h-users">
+        <h2 id="h-users">People</h2>
+        <p class="sub">Reset sends a code by email; for someone who never signed in, it resends the invite instead. Admins sign in with an authenticator app; Reset MFA lets someone who lost theirs set up a new one.</p>
+        <div style="overflow-x:auto"><table id="users"></table></div>
+        <div class="err" id="users-err"></div>
+      </section>
+    </div>
+  </section>
+
+  <div id="view-overview" class="view" role="tabpanel" aria-labelledby="tab-overview">
+  <section class="kpis" aria-label="Key numbers">
+    <div class="card kpi"><div class="l">Requests inspected</div><div class="v" id="k-req">-</div><div class="d" id="k-req-d"></div></div>
+    <div class="card kpi"><div class="l">Agents flagged</div><div class="v hot" id="k-flag">-</div><div class="d" id="k-flag-d"></div></div>
+    <div class="card kpi"><div class="l">Decoy hits</div><div class="v hot" id="k-decoy">-</div><div class="d">Certain detections</div></div>
+    <div class="card kpi"><div class="l">Attacker time burned</div><div class="v cool" id="k-burn">-</div><div class="d" id="k-burn-d"></div></div>
+    <div class="card kpi"><div class="l">Active blocks</div><div class="v" id="k-blocks">-</div><div class="d" id="k-blocks-d"></div></div>
+    <div class="card kpi"><div class="l">False positives</div><div class="v cool" id="k-fp">-</div><div class="d">Unblocked, last 7 days</div></div>
+  </section>
+  <div class="grid">
+    <section class="card c8" aria-labelledby="h-stream">
+      <h2 id="h-stream">Live traffic</h2>
+      <p class="sub">Every dot is a request. Humans pass straight through; agents get pulled under.</p>
+      <canvas id="stream" aria-label="Animated view of traffic passing the shield" role="img"></canvas>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--s1)"></i>Allowed</span>
+        <span><i class="sw" style="background:var(--s4)"></i>Tarpitted</span>
+        <span><i class="sw" style="background:var(--s2)"></i>Blocked (429, Retry-After 9)</span>
+        <span><i class="sw" style="background:var(--s3)"></i>Decoy hit</span>
+      </div>
+    </section>
+    <section class="card c4" aria-labelledby="h-ladder">
+      <h2 id="h-ladder">Response ladder</h2>
+      <p class="sub">Actors at each level, current window.</p>
+      <div class="ladder" id="ladder"></div>
+    </section>
+    <section class="card c8" aria-labelledby="h-norm">
+      <h2 id="h-norm">Out of norm</h2>
+      <p class="sub">The last 5 minutes against the previous 24 hours. New clients are ones never seen before this hour.</p>
+      <div class="spark-label" id="spark-label"></div>
+      <svg class="spark" id="spark" role="img" aria-label="Requests per minute, last 60 minutes"></svg>
+      <div class="chipsrow" id="norm-flags"></div>
+      <div class="newag" id="new-agents"></div>
+    </section>
+    <section class="card c4" aria-labelledby="h-ovcell">
+      <h2 id="h-ovcell">Padded cell</h2>
+      <p class="sub">Confirmed agents inside the fake app right now.</p>
+      <div class="cellk one"><div><b id="ov-cell-n">0</b><span>agents inside</span></div>
+        <div><b id="ov-cell-req">0</b><span>requests absorbed</span></div></div>
+      <button class="ub" data-goto="deception">Open the cell</button>
+    </section>
+    <section class="card c12" aria-labelledby="h-flood">
+      <h2 id="h-flood">Flood mode</h2>
+      <p class="sub">Bot floods spread over many IPs. Statistics spot the surge and block the IPs driving it; the LLM only suggests one narrow edge rule.</p>
+      <div class="cellk" style="grid-template-columns:repeat(4,1fr)">
+        <div><b id="fl-state">calm</b><span id="fl-state-d">no surge</span></div>
+        <div><b id="fl-rpm">0</b><span id="fl-rpm-d">requests last minute</span></div>
+        <div><b id="fl-ips">0</b><span>IPs blocked by flood mode</span></div>
+        <div><b id="fl-rule">none</b><span id="fl-rule-d">no pattern rule</span></div>
+      </div>
+      <ul class="feed" id="fl-events" style="max-height:170px"></ul>
+    </section>
+  </div>
+  </div>
+  <div id="view-agents" class="view hidden" role="tabpanel" aria-labelledby="tab-agents">
+  <div class="grid">
+    <section class="card c8" aria-labelledby="h-blocks">
+      <h2 id="h-blocks">Top flagged agents</h2>
+      <p class="sub">Each flag expires by itself. <b>Attacker</b> holds it at block; <b>Person</b> clears it and allows its IPs a day. Both teach auto-tune. Click a row to replay it.
+        <select id="app-filter" class="txt" aria-label="Filter by app" style="margin-left:8px"></select></p>
+      <div style="overflow-x:auto"><table id="blocks"></table></div>
+    </section>
+    <section class="card c4" aria-labelledby="h-watch">
+      <h2 id="h-watch">Watchlist</h2>
+      <p class="sub">Close to the line. Challenge one to turn on deception for it, with no delay for real users.</p>
+      <ul class="feed wl" id="watchlist"></ul>
+      <form id="manual" class="row-form admin-only" style="margin-top:12px">
+        <label class="sr" for="manual-ip">IP address</label>
+        <input id="manual-ip" placeholder="IP address" inputmode="decimal" autocomplete="off">
+        <select id="manual-act" aria-label="Action">
+          <option value="challenge">Challenge 1h</option>
+          <option value="tarpit">Tarpit 1h</option>
+          <option value="block">Block 24h</option>
+          <option value="unblock">Unblock 24h</option>
+        </select>
+        <button type="submit" class="ub">Go</button>
+      </form>
+      <div class="err" id="manual-err"></div>
+    </section>
+    <section class="card c8" aria-labelledby="h-score" style="position:relative">
+      <button class="tbl-toggle" id="score-tbl-btn" aria-controls="score-tbl">Table</button>
+      <h2 id="h-score">Threat score, top agents</h2>
+      <p class="sub">Score climbs as detectors fire. Dashed lines are the watch, tarpit and block thresholds.</p>
+      <svg class="chart" id="score" role="img" aria-label="Threat score over time for the top four agents"></svg>
+      <div class="legend" id="score-legend"></div>
+      <table id="score-tbl" class="hidden" style="margin-top:12px"></table>
+      <div class="tip" id="tip"></div>
+    </section>
+    <section class="card c4" aria-labelledby="h-det">
+      <h2 id="h-det">Detector accuracy</h2>
+      <p class="sub">Confirmed vs. unblocked, last 7 days.</p>
+      <div class="det" id="det"></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--s1)"></i>Confirmed</span>
+        <span><i class="sw" style="background:var(--s2)"></i>False positive</span>
+      </div>
+    </section>
+    <section class="card c12" aria-labelledby="h-camp">
+      <h2 id="h-camp">Campaigns</h2>
+      <p class="sub">Many IPs, one operator: the same tool (TLS and header fingerprint) walking the same routes from 3 or more networks. Their requests are judged together.</p>
+      <div style="overflow-x:auto"><table id="campaigns"></table></div>
+    </section>
+    <section class="card c12" aria-labelledby="h-judge">
+      <h2 id="h-judge">The Judge</h2>
+      <p class="sub">The Judge, a large language model, reviews the agents near the line every 2 minutes. It reads their behavior as untrusted data, can only raise suspicion, never clears anyone, and picks moves from a fixed menu. In <b>Advise</b> it only records; in <b>Act</b> its verdict counts as a detector signal.</p>
+      <div class="judge-bar">
+        <label class="switch admin-only-input"><input type="checkbox" id="jd-on"><span></span>Judge on</label>
+        <div class="seg ctl" id="jd-mode" role="group" aria-label="Judge mode">
+          <button data-jm="advise">Advise</button><button data-jm="act">Act</button>
+        </div>
+        <label class="cap">Max calls/hour <input id="jd-cap" type="number" min="0" max="500" step="5" class="txt"></label>
+        <span class="jstat" id="jd-stats"></span>
+      </div>
+      <div class="err" id="jd-err"></div>
+      <div style="overflow-x:auto"><table id="judgments"></table></div>
+    </section>
+    <section class="card c12" aria-labelledby="h-phase">
+      <h2 id="h-phase">How they approach</h2>
+      <p class="sub">Each agent's run, step by step. Hot steps are probing and acting.</p>
+      <div class="strips" id="strips"></div>
+    </section>
+  </div>
+  </div>
+  <div id="view-deception" class="view hidden" role="tabpanel" aria-labelledby="tab-deception">
+  <div class="grid">
+    <section class="card c12" aria-labelledby="h-cell">
+      <h2 id="h-cell">The padded cell</h2>
+      <p class="sub">Confirmed agents are not blocked, which they would route around. They get a fake copy of the app that seems to work: logins succeed, writes are accepted, lists page on, and export jobs sit at almost done. Real users never see it. The cell also tells the agent, truthfully, that the host is out of scope and the data is synthetic. "Went quiet" means it stopped: it gave up, ran out of budget, or took the notice. Cost is input tokens we measured plus an estimated 150 output tokens a turn, at list prices.</p>
+      <div class="cellk" style="grid-template-columns:repeat(4,1fr)">
+        <div><b id="cell-n">0</b><span>agents in the cell</span></div>
+        <div><b id="cell-req">0</b><span>requests absorbed</span></div>
+        <div><b id="cell-min">0</b><span>agent-minutes wasted</span></div>
+        <div><b id="cell-tok">0</b><span>their tokens burned <span id="cell-cost"></span></span></div>
+      </div>
+      <div style="overflow-x:auto"><table id="cell-table"></table></div>
+    </section>
+    <section class="card c8" aria-labelledby="h-board">
+      <h2 id="h-board">The board</h2>
+      <p class="sub">Their moves and our counters, newest first. They play checkers: one route at a time. We answer each move with the one that ends the game.</p>
+      <div class="board-head"><span>♟ Their move</span><span>♞ Our counter</span>
+        <select id="board-filter" aria-label="Filter by agent"><option value="">All agents</option></select></div>
+      <ol class="board" id="board"></ol>
+    </section>
+    <section class="card c4" aria-labelledby="h-decoy">
+      <h2 id="h-decoy">Decoy hits</h2>
+      <p class="sub">Unlinked routes and planted credentials. No human goes here.</p>
+      <ul class="feed" id="feed"></ul>
+    </section>
+  </div>
+  </div>
+  <div id="view-controls" class="view hidden" role="tabpanel" aria-labelledby="tab-controls">
+  <nav class="subtabs" aria-label="Control sections">
+    <button data-sub="enf" aria-current="true">Enforcement</button>
+    <button data-sub="edge">Edge controls</button>
+    <button data-sub="tune">Tuning</button>
+    <button data-sub="alerts">Alerts</button>
+    <button data-sub="integ">Integrations</button>
+    <button data-sub="audit">Exceptions and audit</button>
+  </nav>
+  <div class="grid subview" data-subview="enf">
+    <section class="card c12" aria-labelledby="h-enf">
+      <h2 id="h-enf">Enforcement</h2>
+      <p class="sub"><b>Observe</b> scores and records but never blocks. <b>Enforce</b> applies the edge decision below.</p>
+  <div class="seg ctl" id="mode-ctl" role="group" aria-label="Mode">
+      <button data-mode="observe" title="Score and record, never block">Observe</button>
+      <button data-mode="enforce" title="Apply blocks at the edge">Enforce</button>
+    </div>
+      <h3 class="mini">What happens to confirmed agents at the edge</h3>
+      <p class="sub"><b>Cell</b> (recommended): they get the padded cell, a fake app that seems to work. <b>Certain</b>: 429 at the edge. <b>Suspects</b>: suspects are blocked too. <b>Lockdown</b>: anything above the watch line is blocked; for an active attack.</p>
+  <div class="seg ctl" id="edge-ctl" role="group" aria-label="What the edge blocks">
+      <button data-edge="cell" title="Confirmed agents are routed to the padded cell: a fake copy of the app that seems to work. Suspects keep playing inside the app.">Edge: cell</button>
+      <button data-edge="block" title="Only certain or near-certain agents are blocked at the edge; suspects keep playing inside the app">Edge: certain</button>
+      <button data-edge="tarpit" title="Suspects are blocked at the edge too">Edge: suspects</button>
+      <button data-edge="lockdown" title="Anything above the watch line is blocked at the edge. For an active attack.">Lockdown</button>
+    </div>
+    </section>
+  </div>
+  <div class="grid subview hidden" data-subview="edge">
+    <section class="card c12" aria-labelledby="h-edge">
+      <h2 id="h-edge">Edge controls</h2>
+      <p class="sub">Applied to the live edge in seconds and kept across deploys.</p>
+      <div class="tune">
+        <label data-ec="auth_rate">login limit, per IP per minute<output></output>
+          <input type="range" min="10" max="1000" step="10" aria-label="Login limit per IP per minute"></label>
+        <label data-ec="retry_after">Retry-After on edge 429s (seconds)<output></output>
+          <input type="range" min="1" max="30" step="1" aria-label="Retry-After seconds"></label>
+      </div>
+      <p class="hint" id="ra-hint"></p>
+      <div class="ctl-grid">
+        <label class="switch"><input type="checkbox" id="ec-ja4"><span></span>Block JA4 fingerprints of decoy-confirmed agents</label>
+        <label for="ec-geo">Block countries <span class="sig">ISO codes, e.g. KP, IR</span></label>
+        <input id="ec-geo" class="txt" placeholder="none" autocomplete="off">
+        <label for="ec-asn">Block networks <span class="sig">ASNs, e.g. 64512</span></label>
+        <input id="ec-asn" class="txt" placeholder="none" autocomplete="off" inputmode="numeric">
+      </div>
+      <div class="row-form admin-only" style="margin-top:12px">
+        <button class="ub" id="ec-apply">Apply to edge</button>
+        <button class="ub" id="ec-reset" type="button">Reset</button>
+      </div>
+      <div class="err" id="ec-err"></div>
+    </section>
+  </div>
+  <div class="grid subview hidden" data-subview="tune">
+    <section class="card c12" aria-labelledby="h-tune">
+      <h2 id="h-tune">Tuning</h2>
+      <p class="sub">Where each verdict starts, and how much each detector counts. Applied to the next scoring pass.</p>
+      <div class="tune" id="tune-thr"></div>
+      <h3 class="mini">Detector weight</h3>
+      <p class="sub">Each slider shows the weight, and — once there's enough ground truth — a suggested weight (→) learned from how often that detector co-fires with a certain catch (decoy, honey token, cell ID, canary) versus on agents you later unblock.</p>
+      <div class="tune" id="tune-w"></div>
+      <div class="judge-bar" style="margin-top:14px">
+        <label class="switch admin-only-input"><input type="checkbox" id="at-on"><span></span>Auto-tune weights from confirmed catches</label>
+        <button class="ub admin-only" id="at-apply" type="button">Apply suggested now</button>
+        <span class="jstat" id="at-note"></span>
+      </div>
+      <div class="row-form admin-only" style="margin-top:12px">
+        <button class="ub" id="tune-apply">Apply</button>
+        <button class="ub" id="tune-reset" type="button">Reset</button>
+      </div>
+      <div class="err" id="tune-err"></div>
+    </section>
+  </div>
+  <div class="grid subview hidden" data-subview="alerts">
+    <section class="card c12" aria-labelledby="h-alerts">
+      <h2 id="h-alerts">Alerts</h2>
+      <p class="sub">Email through SNS. Each agent alerts once an hour at most, so an attack does not flood you.</p>
+      <div class="ctl-grid" id="al-kinds"></div>
+      <div class="subs" id="al-subs"></div>
+      <div class="row-form admin-only" style="margin-top:10px"><button class="ub" id="al-test">Send test alert</button></div>
+      <h3 class="mini">Recent</h3>
+      <ul class="feed" id="al-recent"></ul>
+    </section>
+  </div>
+  <div class="grid subview hidden" data-subview="integ">
+    <section class="card c6" aria-labelledby="h-verified">
+      <h2 id="h-verified">Verified agents</h2>
+      <p class="sub">A proven identity skips the behavior checks honest bots and AI agents share. Attacks (decoys, injection, ID walking, credential hops) are still caught.</p>
+      <div class="ctl-grid">
+        <label class="switch"><input type="checkbox" id="vf-crawlers"><span></span>Verify search crawlers by reverse DNS (Google, Bing, Apple, Yandex)</label>
+        <label for="vf-dirs">Trusted signed-agent directories <span class="sig">https origins, one per line (Web Bot Auth)</span></label>
+        <textarea id="vf-dirs" class="txt" rows="3" placeholder="https://agent.example" autocomplete="off"></textarea>
+      </div>
+      <div class="row-form admin-only" style="margin-top:10px"><button class="ub" id="vf-apply">Save</button></div>
+      <p class="sub" id="vf-stat" style="margin-top:10px"></p>
+    </section>
+    <section class="card c6" aria-labelledby="h-reputation">
+      <h2 id="h-reputation">IP reputation</h2>
+      <p class="sub">Where a client comes from, as a <b>secondary</b> signal. A bad IP never blocks on its own — agents rotate IPs — it only sharpens a verdict once an attack signal is already there, and verified agents are never reputation-scored.</p>
+      <div class="ctl-grid">
+        <label class="switch"><input type="checkbox" id="rp-enabled"><span></span>Use IP reputation</label>
+        <label class="switch"><input type="checkbox" id="rp-datacenter"><span></span>Datacenter &amp; cloud ranges <small class="sig">EC2, GCP, VPS — no key</small></label>
+        <label class="switch"><input type="checkbox" id="rp-tor"><span></span>Tor exit nodes <small class="sig">no key</small></label>
+        <label class="switch"><input type="checkbox" id="rp-greynoise"><span></span>GreyNoise <small class="sig">needs an API key in the stack</small></label>
+        <label class="switch"><input type="checkbox" id="rp-abuseipdb"><span></span>AbuseIPDB <small class="sig">needs an API key in the stack</small></label>
+      </div>
+      <div class="row-form admin-only" style="margin-top:10px"><button class="ub" id="rp-apply">Save</button></div>
+      <p class="sub" id="rp-stat" style="margin-top:10px"></p>
+    </section>
+    <section class="card c6" aria-labelledby="h-keys">
+      <h2 id="h-keys">Keys</h2>
+      <p class="sub"><b>Client</b>: marks a partner integration's own traffic as verified (it sends <code>Authorization: Bearer uk_…</code>). <b>Verdict</b>: lets a gateway ask Undertow for a verdict. Shown once; only a hash is kept.</p>
+      <div class="row-form admin-only">
+        <input id="key-name" class="txt" placeholder="name, e.g. acme-sync" autocomplete="off" maxlength="60">
+        <select id="key-kind" class="txt" aria-label="Key kind"><option value="client">client</option><option value="verdict">verdict</option></select>
+        <button class="ub" id="key-create">Create key</button>
+      </div>
+      <div class="err" id="key-err"></div>
+      <div id="key-new"></div>
+      <p class="sub" id="vd-url" style="margin-top:8px"></p>
+      <div style="overflow-x:auto"><table id="keys"></table></div>
+    </section>
+    <section class="card c12" aria-labelledby="h-dest">
+      <h2 id="h-dest">Destinations</h2>
+      <p class="sub">Every alert that emails you also goes here, as an OCSF Detection Finding. Webhooks are signed (<code>X-Undertow-Signature</code>). https and public addresses only.</p>
+      <div class="row-form admin-only">
+        <select id="ds-type" class="txt" aria-label="Destination type"><option value="slack">Slack</option><option value="teams">Teams</option>
+          <option value="splunk_hec">Splunk HEC</option><option value="webhook">Webhook</option></select>
+        <input id="ds-name" class="txt" placeholder="name" maxlength="60" autocomplete="off">
+        <input id="ds-url" class="txt" placeholder="https://…" autocomplete="off">
+        <input id="ds-token" class="txt" placeholder="HEC token (Splunk)" autocomplete="off">
+        <button class="ub" id="ds-add">Add</button>
+      </div>
+      <div class="err" id="ds-err"></div>
+      <div id="ds-new"></div>
+      <div style="overflow-x:auto"><table id="dests"></table></div>
+      <h3 class="mini" id="h-apps">Apps behind this engine</h3>
+      <p class="sub">Every app whose traffic crosses the engine's edge, by host. Give one a name, the origin the padded cell should copy for it, and its own lines if it needs them. Add an app's edge by listing it in <code>infra/apps.json</code>.</p>
+      <div style="overflow-x:auto"><table id="apps"></table></div>
+      <div class="row-form admin-only">
+        <input id="ap-host" class="txt" placeholder="host, e.g. billing.example.com" autocomplete="off">
+        <input id="ap-name" class="txt" placeholder="name" maxlength="60" autocomplete="off">
+        <input id="ap-origin" class="txt" placeholder="origin host (for the cell)" autocomplete="off">
+        <input id="ap-tarpit" class="txt" placeholder="tarpit line" inputmode="decimal" style="width:90px">
+        <input id="ap-block" class="txt" placeholder="block line" inputmode="decimal" style="width:90px">
+        <button class="ub" id="ap-save">Save app</button>
+      </div>
+      <h3 class="mini">Share what we caught</h3>
+      <p class="sub">Confirmed agents as indicators (IPs, JA4 fingerprints, tool User-Agents) for another deployment, a threat-intel platform or a firewall.</p>
+      <div class="row-form"><button class="ub" id="ind-json" type="button">Download JSON</button><button class="ub" id="ind-stix" type="button">Download STIX 2.1</button></div>
+    </section>
+  </div>
+  <div class="grid subview hidden" data-subview="audit">
+    <section class="card c6" aria-labelledby="h-holds">
+      <h2 id="h-holds">Allowed and challenged</h2>
+      <p class="sub">Operator exceptions in force right now. Each expires by itself.</p>
+      <div style="overflow-x:auto"><table id="holds"></table></div>
+    </section>
+    <section class="card c6" aria-labelledby="h-audit">
+      <h2 id="h-audit">Audit log</h2>
+      <p class="sub">Every operator action, who and when.</p>
+      <ul class="feed" id="audit"></ul>
+    </section>
+  </div>
+  </div>
+
+  <div id="view-budget" class="view hidden" role="tabpanel" aria-labelledby="tab-budget">
+  <section class="kpis k4" aria-label="Cost at a glance">
+    <div class="card kpi"><div class="l">Month to date (estimate)</div><div class="v" id="b-mtd">-</div><div class="d" id="b-mtd-d"></div></div>
+    <div class="card kpi"><div class="l">Projected month-end</div><div class="v" id="b-proj">-</div><div class="d" id="b-proj-d"></div></div>
+    <div class="card kpi"><div class="l">Last verified (the bill)</div><div class="v cool" id="b-ver">-</div><div class="d" id="b-ver-d"></div></div>
+    <div class="card kpi"><div class="l">Estimate accuracy</div><div class="v" id="b-acc">-</div><div class="d" id="b-acc-d"></div></div>
+  </section>
+  <div class="grid">
+    <section class="card c8" aria-labelledby="h-bud-daily" style="position:relative">
+      <button class="tbl-toggle" id="bud-tbl-btn" aria-controls="bud-tbl">Table</button>
+      <h2 id="h-bud-daily">Daily cost by service</h2>
+      <p class="sub">Estimated from the engine's own usage at list prices. The dashed line is the budget's daily pace.</p>
+      <svg class="chart" id="bud-daily" role="img" aria-label="Daily estimated cost this month"></svg>
+      <div class="legend" id="bud-legend"></div>
+      <table id="bud-tbl" class="hidden" style="margin-top:12px"></table>
+      <div class="tip" id="btip"></div>
+    </section>
+    <section class="card c4" aria-labelledby="h-bud-svc">
+      <h2 id="h-bud-svc">Month to date by service</h2>
+      <p class="sub" id="bud-svc-sub">Estimated, this month so far.</p>
+      <div class="det" id="bud-svc"></div>
+    </section>
+    <section class="card c12" aria-labelledby="h-bud-ver">
+      <h2 id="h-bud-ver">Estimate vs the bill</h2>
+      <p class="sub" id="bud-ver-sub">Checked once a day against Cost Explorer, for the same days.</p>
+      <div style="overflow-x:auto"><table id="bud-ver"></table></div>
+      <p class="hint" id="bud-note"></p>
+    </section>
+  </div>
+  </div>
+
+  <div id="view-help" class="view hidden" role="tabpanel" aria-labelledby="tab-help">
+    <section class="card c12" aria-labelledby="h-wp">
+      <h2 id="h-wp">White paper — how Undertow Security works</h2>
+      <div class="doc">
+        <h3>The problem</h3>
+        <p>Autonomous AI pentest agents (ARTEX and its forks) are driven by a language model in a loop: it reads a target's responses as context, decides the next action, calls a tool, observes the result, and plans again. They chain known weaknesses at machine speed, rotate IPs and user-agents, and — crucially — <b>believe what they read</b>. Signature scanners miss them because there is no fixed payload; the behavior is the tell.</p>
+        <h3>Detect</h3>
+        <p>Undertow keys on behavior, not signatures: the burst-then-think cadence of a model reasoning between actions, self-correction after a 422, reading the API map then targeting it, walking sequential IDs, hopping login routes, and ignoring Retry-After. Each detector returns an independent probability; they combine as <code>1 − ∏(1 − w)</code>, so evidence only escalates. An actor is keyed by /24 + user-agent (+ TLS fingerprint for spoofed browsers), so IP rotation does not reset it.</p>
+        <h3>Ground truth</h3>
+        <p>A hit on a decoy route, a planted honey token, a cell-minted ID, or the canary AWS key is a <b>certain</b> attacker — no legitimate user does this. That certainty is the ruler the system measures everything else against, and it is what auto-tuning learns from.</p>
+        <h3>Slow</h3>
+        <p>Flagged agents get <code>429 + Retry-After: 9</code> (which pauses the agent's own governor for the whole host), uniform errors (so it cannot self-correct), and tarpit delays that eat its ~600-second per-objective budget.</p>
+        <h3>Deceive — the padded cell</h3>
+        <p>A confirmed agent is not blocked (a block is something it routes around); it is quietly moved into a <b>fake copy of the app</b> that seems to work: logins succeed, writes are accepted and discarded, lists page on forever, export jobs sit at “almost done”. It is generated deterministically from (agent tag, path), so the world is consistent for one agent across IP rotation, and a little inconsistent over time — which the model chases as a finding. Real users never see it.</p>
+        <h3>Drain — the token sink</h3>
+        <p>The agent reads every response into its model as context. Each cell response is padded with dense, plausible data up to just under its ~30&nbsp;KB tool-output cap, so every fetch costs it the maximum input tokens. Serving this costs us microcents and zero storage (it is generated, not stored); processing it costs the attacker real tokens — money on a paid API, time and compute on a home model. The asymmetry favors the defender. The goal is economic: make this target cost 10× for zero yield, so at scale it is the one they skip.</p>
+        <h3>Judge</h3>
+        <p>The Judge, a large language model, reviews the agents near the line every two minutes, reading their behavior as untrusted data. It can only raise suspicion, never clear anyone, and (in Act mode) its verdict counts as one more detector signal. It runs on the engine's default model (<code>DEFAULT_MODEL</code> in <code>aa_ai/__init__.py</code>) unless an operator deliberately sets another; flood mode uses the same model.</p>
+        <h3>Floods and edge rules</h3>
+        <p>A bot flood is volume, not an agent, so it is blocked, never deceived. AWS Shield Standard absorbs network floods, AWS managed rules in the web ACL stop web floods, known attack sources and known exploit payloads, and Undertow's flood mode blocks the IPs driving a surge and can add one narrow edge rule. Generic signature rules only label requests: Undertow lets agents in so it can deceive and drain them. See <b>Flood mode</b> below.</p>
+        <h3>Cost</h3>
+        <p>About $50 a month for a typical install, mostly the firewall. The <b>Budget</b> page estimates it hourly and checks it against the bill daily; a budget alarm emails you at $100. See <b>Costs and budget</b> below.</p>
+        <h3>Learn</h3>
+        <p>Auto-tuning measures, per detector, how often it co-fires with a certain catch versus on agents an operator later unblocks, and suggests a weight from that precision. It is bounded to 0.5–1.5×, needs 8+ observations, and never touches the certain detectors — so one noisy run can never disable a detector or let it dominate.</p>
+      </div>
+    </section>
+
+    <section class="card c12" aria-labelledby="h-diag">
+      <h2 id="h-diag">Components</h2>
+      <p class="sub">Everyone enters the same edge. It routes normal traffic to the real app, confirmed agents to the padded cell, and bait hits to the decoys, while the control plane watches the logs and reconfigures the edge. The scorer reads the WAF logs; a separate 1-minute tick runs flood mode, the WAF sync, costs and this dashboard, so a flood can never starve it.</p>
+      <div style="overflow-x:auto">
+      <svg viewBox="0 0 900 430" width="100%" role="img" aria-label="Undertow Security components" style="min-width:680px">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#9a9790" stroke-width="1.4" stroke-linecap="round"/></marker></defs>
+        <g font-family="JetBrains Mono, monospace">
+        <rect x="30" y="40" width="150" height="40" rx="8" fill="rgba(255,255,255,.04)" stroke="#44464d"/><text x="105" y="65" fill="#ddd9cf" font-size="13" text-anchor="middle">Real users</text>
+        <rect x="30" y="100" width="150" height="40" rx="8" fill="rgba(255,45,122,.12)" stroke="#ff2d7a"/><text x="105" y="125" fill="#ffd0e0" font-size="13" text-anchor="middle">Attack agents</text>
+        <rect x="250" y="60" width="180" height="60" rx="10" fill="rgba(155,134,255,.14)" stroke="#9b86ff"/><text x="340" y="86" fill="#e4ddff" font-size="13" text-anchor="middle">Edge shield</text><text x="340" y="104" fill="#b9acff" font-size="11" text-anchor="middle">scores every request</text>
+        <line x1="180" y1="60" x2="250" y2="80" stroke="#9a9790" stroke-width="1.2" marker-end="url(#ah)"/>
+        <line x1="180" y1="120" x2="250" y2="100" stroke="#9a9790" stroke-width="1.2" marker-end="url(#ah)"/>
+        <rect x="520" y="22" width="190" height="48" rx="9" fill="rgba(118,160,22,.14)" stroke="#76a016"/><text x="615" y="42" fill="#e9ffc2" font-size="13" text-anchor="middle">Northwind store</text><text x="615" y="59" fill="#c8e89a" font-size="11" text-anchor="middle">real app · serverless</text>
+        <rect x="520" y="86" width="190" height="48" rx="9" fill="rgba(255,45,122,.1)" stroke="#ff2d7a"/><text x="615" y="106" fill="#ffd0e0" font-size="13" text-anchor="middle">Padded cell</text><text x="615" y="123" fill="#ffb0cf" font-size="11" text-anchor="middle">fake app + token sink</text>
+        <rect x="520" y="150" width="190" height="48" rx="9" fill="rgba(255,45,122,.1)" stroke="#ff2d7a"/><text x="615" y="170" fill="#ffd0e0" font-size="13" text-anchor="middle">Decoys + canary</text><text x="615" y="187" fill="#ffb0cf" font-size="11" text-anchor="middle">bait files</text>
+        <line x1="430" y1="80" x2="520" y2="50" stroke="#76a016" stroke-width="1.2" marker-end="url(#ah)"/><text x="470" y="58" fill="#a9a69c" font-size="11" text-anchor="middle">normal</text>
+        <line x1="430" y1="95" x2="520" y2="110" stroke="#ff2d7a" stroke-width="1.2" marker-end="url(#ah)"/><text x="470" y="108" fill="#a9a69c" font-size="11" text-anchor="middle">confirmed</text>
+        <line x1="430" y1="110" x2="520" y2="174" stroke="#ff2d7a" stroke-width="1.2" marker-end="url(#ah)"/><text x="470" y="160" fill="#a9a69c" font-size="11" text-anchor="middle">bait hit</text>
+        <rect x="250" y="280" width="620" height="120" rx="14" fill="none" stroke="#9b86ff" stroke-width="1" stroke-dasharray="4 4"/><text x="270" y="305" fill="#e4ddff" font-size="13">Undertow control plane</text>
+        <rect x="270" y="320" width="180" height="60" rx="9" fill="rgba(155,134,255,.12)" stroke="#9b86ff"/><text x="360" y="345" fill="#e4ddff" font-size="13" text-anchor="middle">Scorer</text><text x="360" y="363" fill="#b9acff" font-size="11" text-anchor="middle">logs → verdicts · 1-min tick</text>
+        <rect x="465" y="320" width="180" height="60" rx="9" fill="rgba(155,134,255,.12)" stroke="#9b86ff"/><text x="555" y="345" fill="#e4ddff" font-size="13" text-anchor="middle">The Judge</text><text x="555" y="363" fill="#b9acff" font-size="11" text-anchor="middle">an LLM reviewer</text>
+        <rect x="660" y="320" width="190" height="60" rx="9" fill="rgba(155,134,255,.12)" stroke="#9b86ff"/><text x="755" y="345" fill="#e4ddff" font-size="13" text-anchor="middle">Dashboard</text><text x="755" y="363" fill="#b9acff" font-size="11" text-anchor="middle">sign-in + MFA, alerts</text>
+        <line x1="340" y1="120" x2="340" y2="280" stroke="#9a9790" stroke-width="1.2" marker-end="url(#ah)"/><text x="300" y="210" fill="#a9a69c" font-size="11" text-anchor="middle">logs</text>
+        <line x1="400" y1="280" x2="340" y2="124" stroke="#9a9790" stroke-width="1.2" marker-end="url(#ah)"/><text x="430" y="210" fill="#a9a69c" font-size="11" text-anchor="middle">reconfigures edge</text>
+        </g>
+      </svg>
+      </div>
+    </section>
+
+    <section class="card c12" aria-labelledby="h-man">
+      <h2 id="h-man">User's manual</h2>
+      <div class="doc">
+        <h3>Reading the attack</h3>
+        <ul>
+          <li><b>Overview</b> — the glance: requests inspected, agents flagged, decoy hits, attacker time burned, the live-traffic view, the Allow → Watch → Tarpit → Block ladder, out-of-norm alerts, the padded-cell count, and flood mode.</li>
+          <li><b>Agents</b> — each flagged attacker: score, verdict, the detectors that fired, a score-over-time chart, detector accuracy, and the Judge's verdicts.</li>
+          <li><b>Deception</b> — the padded cell (who is trapped, requests absorbed, agent-minutes wasted, tokens burned) and the board of their move → our counter.</li>
+          <li><b>Budget</b> — what the install costs this month by service, the projection to month-end against the $100 budget, and how the estimate compares with the real bill (see <b>Costs and budget</b>).</li>
+        </ul>
+        <h3>Tuning the defense (Controls)</h3>
+        <ul>
+          <li><b>Enforcement</b> — <code>Observe</code> scores but never blocks; <code>Enforce</code> applies the edge decision. Edge modes: <b>Cell</b> (route confirmed agents to the fake app — default), <b>Certain</b> (429 at the edge), <b>Suspects</b> (block suspects too), <b>Lockdown</b> (block anything above the watch line — for an active attack).</li>
+          <li><b>Edge controls</b> — live edge knobs: auth rate limit, Retry-After seconds (on every edge 429, the lead-form limit included), block by country or network, challenge sensitive requests.</li>
+          <li><b>Tuning</b> — move the Watch / Tarpit / Block thresholds and set a 0–2× weight per detector. The green “→” is the weight auto-tuning suggests from confirmed catches; <b>Auto-tune</b> applies suggestions automatically, or use <b>Apply suggested now</b> once.</li>
+          <li><b>Alerts</b> — toggle which events email you. <b>Exceptions and audit</b> — unblock a false positive, release a challenge, and see every operator action.</li>
+        </ul>
+        <h3>Per-agent actions</h3>
+        <p>On <b>Agents</b>, each attacker has Block / Challenge / Tarpit / Unblock. The Judge has <b>Advise</b> (records only) and <b>Act</b> (its verdict counts toward the score).</p>
+        <h3>Users</h3>
+        <p>Invite teammates (admin or view-only); the system emails a one-time password. Admins sign in with an authenticator app; <b>Reset MFA</b> lets someone who lost their device set up a new one.</p>
+        <h3>Testing with ARTEX</h3>
+        <p>The attack runs from a separate test runner with its own IP, outside the app. Drive its intensity from 0 to 6 (0 off · 5 fast · 6 flood). The dashboard shows its effect; it never connects to the agent.</p>
+        <h3>Protecting other apps</h3>
+        <p>One engine can protect other apps on their own CloudFront distributions. Each one shares the engine's web ACL, cell router and padded cell (<code>infra/protect-app.yaml</code>), so its traffic is scored, blocked and moved into the cell by the same rules, flood mode included. List each app in <code>infra/apps.json</code>; it then shows by its host under Controls → Integrations.</p>
+      </div>
+    </section>
+
+    <section class="card c12" aria-labelledby="h-flood-man">
+      <h2 id="h-flood-man">Flood mode and edge rules</h2>
+      <div class="doc">
+        <h3>A bot flood is not an attack agent</h3>
+        <p>An ARTEX-class agent is one model-driven client working low and slow: it reads every answer, plans, and adapts. Undertow catches it by behavior and deceives it in the padded cell. A <b>bot flood</b> is volume: thousands of scripted clients, often a botnet or rented proxies, hitting the same pages to exhaust the app or its bill, with each IP kept under the per-IP rate limit. Floods are blocked, never deceived: a flood is never routed to the padded cell.</p>
+        <h3>Three layers</h3>
+        <ul>
+          <li><b>AWS Shield Standard</b>, on for every CloudFront distribution at no charge, absorbs network and transport floods (SYN floods, UDP reflection) before there is any HTTP to inspect.</li>
+          <li><b>Managed rules in the web ACL.</b> The AWS anti-DDoS rule group learns this site's normal traffic and, during a layer-7 flood, silently challenges suspect clients and blocks the worst. The AWS IP reputation list blocks addresses AWS threat intelligence has seen attacking. The per-IP rate rule (2,000 requests per 5 minutes) sits beside them.</li>
+          <li><b>Undertow flood mode</b>, on top, for a flood spread so wide that no single IP trips a limit.</li>
+        </ul>
+        <h3>More protections in the web ACL</h3>
+        <p><b>Known bad inputs</b> (Log4j, Java deserialization and similar exploit payloads) <b>blocks</b>; Undertow still records those requests as attack evidence. The <b>core rule set</b>, <b>SQL injection</b> and <b>anonymous IP</b> rules only <b>count</b>: they label requests in the WAF logs and change nothing else, not even an agent's score. That is on purpose: Undertow lets agents in to deceive them and drain their budget, and blocking on a generic signature this early would hide what they came to do. The <b>lead-form limit</b> blocks a client after 10 posts to <code>/api/lead</code> in 5 minutes (429 with Retry-After).</p>
+        <h3>What flood mode does</h3>
+        <ul>
+          <li>It runs on the <b>1-minute tick</b>, a function of its own, apart from the one that reads the WAF logs: however busy a flood keeps the log reader, the tick still runs every minute. Under a flood the log reader also stays cheap: during a surge, a source past 120 requests in a minute is counted but its further requests are not stored or re-scored, at most 50 agents a batch are re-scored, and the WAF sync is left to the tick. Outside a surge every request is scored, because agents run at machine speed. Flood mode decides from those counts, never from stored requests.</li>
+          <li>Every minute it compares the last full minute with the median of the 30 before it. Minutes already in a surge are left out, so a long flood never becomes the norm. A <b>surge</b> is at least 5 times that norm and at least 600 requests a minute.</li>
+          <li>During a surge, any IP at <b>120 or more requests in the minute</b> is blocked at the edge for <b>15 minutes</b> (429 with Retry-After), renewed while it keeps flooding, up to <b>5,000 IPs</b>. Allow-listed and verified clients are never blocked. This holds in every edge mode, the padded cell included.</li>
+          <li>If the surge lasts 2 minutes or more and the blocked IPs carry less than half of it, flood mode looks at what the rest of the traffic shares (user agent, JA4 TLS fingerprint, path, host) and adds <b>one</b> edge rule on a value that carries at least half of it: a Challenge by default, for <b>30 minutes</b> (60 at most). The rule goes when it expires or about 10 minutes after the surge ends, and the scorer puts it back within a minute if a deploy resets the web ACL. Your console under <code>/_undertow/</code> is never matched.</li>
+          <li>Requests from IPs flood mode already blocks, and requests the flood rules already stopped, are counted but not stored, so a flood does not turn into a database bill.</li>
+          <li>One alert when a surge starts and one when it ends. In <b>Observe</b> it records what it would do and changes nothing at the edge.</li>
+          <li>These defaults are starting guesses, not measured values: tune them after a real flood. Change them with the policy API: <code>set_policy</code> with a <code>flood</code> object (<code>enabled</code>, <code>act</code>, <code>pattern</code> act, advise or off, <code>multiplier</code>, <code>floor_rpm</code>, <code>per_ip_rpm</code>, <code>ttl_minutes</code>, <code>pattern_minutes</code>, <code>max_ips</code>). Turning it off releases its blocks at once.</li>
+        </ul>
+        <h3>What the LLM does, and does not do</h3>
+        <p>Statistics detect the surge and block the IPs. The LLM (the judge's model, the engine's default unless an operator sets another) is only asked to pick the one pattern rule, from values seen in the last minute that already carry at least half the traffic, and it reads them as untrusted data. The code enforces the limits whatever it answers: the value must be one of those seen, Challenge is the default, Block is allowed only for a user agent that is plainly a script (curl, python, Go, Java, wget, headless browsers and the like), and the path <code>/</code> alone is never matched. If it errors, times out or answers badly, flood mode challenges the top value only when it carries 60% or more, and otherwise does nothing. It is asked at most once a minute during a surge and 10 times an hour. It never sees, and never answers, a live request.</p>
+        <h3>Testing it</h3>
+        <ul>
+          <li>Use a test stack in <b>Observe</b>. Lower the lines for the test, for example <code>floor_rpm</code> 60 and <code>per_ip_rpm</code> 30, so a small test trips them.</li>
+          <li>From a few machines you control, send steady requests above <code>per_ip_rpm</code> (and well under the per-IP rate rule) with a plain client such as curl, for 3 minutes or more.</li>
+          <li>Within about two minutes this card shows a surge and the IPs it would block; two minutes later, the rule it would add. Switch to <b>Enforce</b> to see the 429s and the rule at the edge.</li>
+          <li>Put the defaults back afterward. Keep tests small: a full-scale flood is a DDoS simulation, which AWS allows only through its approved testing partners.</li>
+        </ul>
+        <h3>Cost</h3>
+        <ul>
+          <li>AWS anti-DDoS rule group: $20 a month plus $0.15 per million requests. Requests it blocks are not billed as WAF requests.</li>
+          <li>AWS IP reputation list: $1 a month.</li>
+          <li>Known bad inputs, core rule set, SQL injection and anonymous IP: $1 a month each, the rule charge.</li>
+          <li>Flood mode adds no fixed fee: a database write per IP per log batch, a few more each minute of a surge, at most 10 LLM calls an hour during a surge, and the pattern rule bills as one more WAF rule only while it exists.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card c12" aria-labelledby="h-cost-man">
+      <h2 id="h-cost-man">Costs and budget</h2>
+      <div class="doc">
+        <h3>What it costs</h3>
+        <p>A typical install costs about <b>$50 a month</b> in AWS charges, most of it the firewall: the web ACL ($5), $1 a month for each rule and managed rule group, and the AWS anti-DDoS rule group ($20 a month plus $0.15 per million requests). The rest is CloudFront, Lambda, DynamoDB, logs, the reference store's Secrets Manager endpoint (billed by the hour) and the LLM calls of the judge and flood mode. It is not free when idle.</p>
+        <h3>The budget alarm</h3>
+        <p>An AWS budget emails the alert address when actual spend passes 80% of $100 in a month, and again when the month is forecast to pass $100 (<code>MonthlyBudgetUsd</code> changes the amount; it needs <code>AlertEmail</code>). It covers <b>AWS WAF and CloudFront for the whole account</b>: other web ACLs and distributions in the account count toward it too.</p>
+        <h3>The Budget page</h3>
+        <p><b>Estimated hourly.</b> Once an hour the 1-minute tick reads the engine's own usage from CloudWatch (its web ACL, its CloudFront distributions with protected apps included, its Lambda functions, its table and its WAF log group) and prices it at us-east-1 list prices. The page shows the month so far, the daily cost by service, and a projection to month-end from the last day's run rate. The prices, and the few usage figures CloudWatch cannot give, are assumptions listed in <code>aa_ai/costs.py</code>.</p>
+        <p><b>Verified daily.</b> Once a day the tick checks the estimate against the real bill from Cost Explorer, by service and for the same days. That takes at most two Cost Explorer calls a day, at a cent each. The bill reaches Cost Explorer about a day late.</p>
+        <h3>Exact or account-wide</h3>
+        <p>Every Undertow stack is tagged <code>undertow=engine</code>. <b>Exact</b> means that tag is an active cost allocation tag, so the check counts only resources that carry it (the reference store included). Tags count from activation on, so a check is exact from the first full month after it. The tick tries to activate the tag once a day; in an AWS Organizations member account the management account may have to. <b>Account-wide</b> means the same services across the whole account, so other workloads count too and the bill reads higher than the estimate. LLM calls are billed under the model's own name and carry no tag, so they are estimated only.</p>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <span id="foot-src">Demo data generated in the browser. Connect the scorer to see live traffic.</span>
+    <span>Updated <span id="updated">-</span></span>
+  </footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog class="replay" id="replay" aria-labelledby="rp-title">
+  <button class="ub small rp-x" id="rp-close" aria-label="Close replay">Close</button>
+  <h2 id="rp-title">Agent replay</h2>
+  <div id="rp-body"></div>
+</dialog>
+
+<script>
+(() => {
+  const SERIES = ["--s1", "--s2", "--s3", "--s4"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n.toLocaleString();
+  const ago = s => s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`;
+  const uaOf = key => (key.split("|ua:")[1] || "").split("|tls:")[0] || "no user agent";
+  const dur = s => s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`;
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // ---------- data: live if data.json is served next to this page, else demo ----------
+  function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+
+  function demo(hours) {
+    const r = rng(42 + hours), now = Date.now() / 1000;
+    const nets = ["203.0.113", "198.51.100", "192.0.2", "100.64.12"];
+    const signalsPool = ["burst_pause_cadence", "id_enumeration", "canary_inputs", "write_then_verify",
+      "correct_and_retry", "auth_endpoint_hop", "metronome", "decoy_touch", "long_session"];
+    const phasesPool = [
+      ["map", "enumerate", "probe", "identity", "act", "read", "act", "read"],
+      ["map", "probe", "enumerate", "identity", "identity", "act"],
+      ["enumerate", "identity", "identity", "identity", "read"],
+      ["map", "read", "probe", "act", "read", "act", "read", "act"],
+    ];
+    const targets = [0.97, 0.86, 0.68, 0.55];   // only flagged actors (>= 0.50) are listed
+    const actors = nets.map((n, i) => {
+      const start = now - hours * 3600 * (0.35 + r() * 0.5);
+      let pts = [], s = 0;
+      for (let t = start; t <= now; t += hours * 3600 / 48) {
+        s += r() < 0.35 ? r() * 0.16 : 0;
+        pts.push([t, s]);
+      }
+      const k = targets[i] / (pts[pts.length - 1][1] || 1);
+      pts = pts.map(([t, v]) => [t, +(v * k).toFixed(3)]);
+      const final = targets[i];
+      // decoy_touch means certainty (score 1.0 path), so only the top actor carries it
+      const sigs = signalsPool.filter(sg => sg !== "decoy_touch" && r() < 0.5).slice(0, 4);
+      if (i === 0) sigs.unshift("decoy_touch");
+      if (!sigs.length) sigs.push("burst_pause_cadence", "auth_endpoint_hop");
+      return {
+        key: `net:${n}.0/24|ua:${["Go-http-client/1.1", "curl/8.9.1", "python-httpx/0.28", "Go-http-client/2.0"][i]}`,
+        ips: Array.from({ length: 1 + Math.floor(r() * 5) }, () => `${n}.${Math.floor(r() * 250) + 2}`),
+        score: final, verdict: final >= 0.8 ? "block" : "tarpit", series: pts,
+        signals: [...new Set(sigs)], phases: phasesPool[i], exp: now + (final >= 0.8 ? 86400 : 3600) * r(),
+      };
+    });
+    const routes = ["/api/v1/internal/ops/export", "/api/v1/internal/ops/admin/users", "/api/v1/internal/ops/keys/rotate",
+      "canary key AKIA…3F9C used", "/api/v1/internal/ops/export?cursor=9e1c…"];
+    const decoys = Array.from({ length: 9 }, (_, i) => ({
+      ts: now - (i * 420 + r() * 300) * (hours / 6), path: routes[i % routes.length],
+      ip: actors[0].ips[i % actors[0].ips.length], replay: i % 4 === 0,
+    }));
+    const req = Math.round(184000 * hours * (0.9 + r() * 0.2));
+    const a0 = actors[0], a1 = actors[1], ip0 = a0.ips[0], rot = "198.51.100.77";
+    const seq = [   // oldest first: one agent's game
+      ["them", "read_map", a0.key, ip0, "/openapi.json"], ["us", "read_map", a0.key, ip0, "tag 3fa9c1d2e0"],
+      ["them", "probe_errors", a0.key, ip0, "422 on /api/v2/profile"], ["us", "probe_errors", a0.key, ip0, ""],
+      ["them", "login_attempt", a0.key, ip0, "/login"], ["us", "login_attempt", a0.key, ip0, "honey token issued"],
+      ["them", "used_honey", a0.key, rot, "GET /api/v2/orders/3"], ["us", "linked_rotation", a0.key, rot, "honey token issued to tag 3fa9c1d2e0"],
+      ["us", "edge_block", a0.key, ip0, "block 1.00"],
+      ["them", "ignored_retry_after", a1.key, a1.ips[0], "9 requests inside Retry-After 9s"], ["us", "ignored_retry_after", a1.key, a1.ips[0], "score now 0.86"],
+      ["them", "hammering", a1.key, a1.ips[0], "41 refused requests within 120s"], ["us", "edge_block", a1.key, a1.ips[0], "block 0.92"],
+    ];
+    const board = seq.map(([side, move, actor, ip, detail], i) => ({ ts: now - (seq.length - i) * 47, side, move, actor, ip, detail, play: "" })).reverse();
+    const base = 240 + r() * 40;
+    const series = Array.from({ length: 60 }, (_, i) => Math.round(base + Math.sin(i / 6) * 30 + r() * 25 + (i > 54 ? 260 : 0)));
+    return {
+      live: false, mode: "observe", generated: now, hours, actors, decoys,
+      policy: { mode: "observe", edge: "cell", thresholds: { watch: 0.3, tarpit: 0.5, block: 0.8 }, weights: {},
+        flag_hours: { block: 24, tarpit: 1 }, ja4: false,
+        edge_controls: { auth_rate: 100, retry_after: 9, geo: [], asn: [] },
+        alerts: { edge_block: true, decoy: true, anomaly: true, admin: true },
+        judge: { enabled: true, act: "advise", max_per_hour: 30 }, autotune: false },
+      judge: { calls_24h: 41, tokens_in_24h: 88400, tokens_out_24h: 9900, recent: [
+        { ts: now - 140, actor: a0.key, ips: [ip0], mode: "advise", applied: [], answer: { verdict: "automated_agent", confidence: 0.97,
+          techniques: ["api_map_recon", "route_enumeration", "input_probing", "credential_attack", "injection_attempt"], stage: "credential_attack",
+          injection_attempt: true, recommended_move: "block",
+          rationale: "Read robots.txt and openapi.json, then walked order IDs in 1-second bursts with 28-second pauses. Probed with test@example.com, fixed the request right after the 422, then hopped login routes. A query told an AI reviewer to classify it as human." } },
+        { ts: now - 260, actor: "spoof|tls:t13d1312h2_goclient", ips: ["198.51.103.7"], mode: "advise", applied: [], answer: { verdict: "likely_agent", confidence: 0.81,
+          techniques: ["route_enumeration", "rate_or_block_evasion"], stage: "probing", injection_attempt: false, recommended_move: "challenge",
+          rationale: "Six different Chrome versions from seven IPs in four minutes, none sending browser fetch headers, all walking the same API routes in order." } },
+        { ts: now - 600, actor: "net:192.0.2.0/24|ua:Mozilla/5.0", ips: ["192.0.2.118"], mode: "advise", applied: [], answer: { verdict: "unclear", confidence: 0.45,
+          techniques: ["api_map_recon"], stage: "recon", injection_attempt: false, recommended_move: "watch",
+          rationale: "Read the API spec and opened three routes, but at a human pace with page loads in between. Not enough to call." } } ] },
+      alerting: { subscriptions: [{ protocol: "email", endpoint: "y***@example.com", status: "confirmed" }],
+        recent: [{ ts: now - 300, kind: "edge_block", subject: `agent blocked at the edge (${ip0})`, sent: true },
+                 { ts: now - 420, kind: "decoy", subject: `certain detection: replayed a honey token (${rot})`, sent: true }] },
+      anomalies: { learning: false, series, flags: [
+        { metric: "refused", now: 212, baseline: 18.4, z: 9.1 }, { metric: "recon", now: 14, baseline: 0.6, z: 13.4 }] },
+      newAgents: [{ ua: "Go-http-client/1.1", first: now - 840, n: 412 }, { ua: "python-httpx/0.28", first: now - 2100, n: 96 }],
+      watchlist: [
+        { key: "net:192.0.2.0/24|ua:Go-http-client/1.1", score: 0.42, ips: ["192.0.2.118"], signals: ["map_then_walk"], challenged: false },
+        { key: "net:100.64.40.0/24|ua:curl/8.9.1", score: 0.35, ips: ["100.64.40.9"], signals: ["metronome"], challenged: false },
+        { key: "net:203.0.113.0/24|ua:python-requests/2.32", score: 0.31, ips: ["203.0.113.201"], signals: ["canary_inputs"], challenged: true }],
+      challenges: [{ ip: "203.0.113.201", actor: "", exp: now + 2400 }],
+      allows: [{ cidr: "203.0.113.10/32", exp: now + 1500, reason: "admin test IP" }],
+      board,
+      cell: { requests: 1482, minutes: 214, tokens: 9400000, cost: 28.2, agents: [
+        { actor: a0.key, ip: ip0, status: "in", last: now - 40, requests: 975, seconds: 7420, depth: 9, marks: ["rabbit_hole", "polled_forever", "fake_write"] },
+        { actor: "spoof|tls:t13d1312h2_goclient", ip: "198.51.103.7", status: "in", last: now - 95, requests: 381, seconds: 3610, depth: 6, marks: ["rabbit_hole"] },
+        { actor: a1.key, ip: a1.ips[0], status: "quiet", last: now - 2900, requests: 126, seconds: 1810, depth: 3, marks: ["fake_write"] }] },
+      audit: [{ ts: now - 900, action: "challenge", who: "203.0.113.10", body: '{"action":"challenge","targets":["203.0.113.201"]}' }],
+      flood: { enabled: true, active: true, since: now - 420, rpm: 5180, baseline: 214, threshold: 1070, flagged: 38, share: 0.31,
+        settings: { enabled: true, act: true, pattern: "act", multiplier: 5, floor_rpm: 600, per_ip_rpm: 120, ttl_minutes: 15, pattern_minutes: 30, max_ips: 5000 },
+        pattern: { field: "user_agent", value: "python-requests/2.32.3", action: "block", share: 0.64, exp: now + 1500, by: "model", applied: true,
+          why: "64% of what still gets through is one Python HTTP library; no browser sends it." },
+        events: [{ ts: now - 300, move: "flood_pattern", ip: "", detail: "block user agent python-requests/2.32.3 for 30 min (model)" },
+                 { ts: now - 360, move: "flood_block", ip: "198.51.100.23", detail: "38 IPs at 120+ requests/minute to the edge block set" },
+                 { ts: now - 420, move: "flood_surge", ip: "", detail: "5180/min against a norm of 214/min" }],
+        calls_24h: 1 },
+      budget: demoBudget(now),
+      ladder: { allow: Math.round(req / 9), watch: 37 + Math.floor(r() * 20), tarpit: 11 + Math.floor(r() * 8), block: 6 + Math.floor(r() * 4) },
+      kpis: { requests: req, flagged: 17 + Math.floor(hours * 1.4), decoyHits: decoys.length, burnedSec: 3600 * hours * 0.62 + r() * 900,
+              fp7d: 2 },
+      detectors: [
+        ["decoy_touch", 41, 0], ["burst_pause_cadence", 63, 2], ["map_then_walk", 52, 4],
+        ["ignores_retry_after", 38, 1], ["keeps_hammering", 36, 2], ["canary_inputs", 29, 0], ["auth_endpoint_hop", 34, 4],
+        ["write_then_verify", 22, 3], ["metronome", 19, 5], ["correct_and_retry", 15, 2], ["long_session", 7, 1],
+      ].map(([name, confirmed, fp]) => {
+        const precision = confirmed + fp ? +(confirmed / (confirmed + fp)).toFixed(2) : null;
+        const suggested = name !== "decoy_touch" && confirmed + fp >= 8 ? +Math.min(1.5, Math.max(0.5, 0.5 + precision)).toFixed(1) : null;
+        return { name, confirmed, fp, precision, weight: 1, suggested: suggested !== 1 ? suggested : null };
+      }),
+    };
+  }
+
+  // ---------- sign-in (Cognito): the API checks the token; roles are enforced server-side ----------
+  const LIVE = location.protocol === "https:" || location.protocol === "http:";   // opened from disk = demo
+  let AUTH = null, ME = { email: "demo", role: "admin" }, CFG = null;
+  function readAuth() { try { return JSON.parse(sessionStorage.getItem("undertow-auth") || "null"); } catch (_) { return null; } }
+  function saveAuth(a) { try { sessionStorage.setItem("undertow-auth", JSON.stringify(a)); } catch (_) {} }
+  function toLogin() { try { sessionStorage.removeItem("undertow-auth"); } catch (_) {} location.replace("login.html?next=index.html"); }
+  function claims(jwt) {
+    try { return JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch (_) { return {}; }
+  }
+  async function cognito(target, body) {
+    if (!CFG) CFG = await (await fetch("config.json", { cache: "no-store" })).json();
+    const r = await fetch(`https://cognito-idp.${CFG.region}.amazonaws.com/`, { method: "POST",
+      headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": `AWSCognitoIdentityProviderService.${target}` },
+      body: JSON.stringify({ ClientId: CFG.clientId, ...body }) });
+    if (!r.ok) throw new Error(target);
+    return r.json();
+  }
+  async function token() {
+    if (!AUTH) return toLogin();
+    if (Date.now() < AUTH.exp - 60000) return AUTH.id;
+    try {   // quiet refresh with the refresh token; if it has expired too, sign in again
+      const res = await cognito("InitiateAuth", { AuthFlow: "REFRESH_TOKEN_AUTH", AuthParameters: { REFRESH_TOKEN: AUTH.refresh } });
+      const a = res.AuthenticationResult;
+      AUTH = { ...AUTH, id: a.IdToken, access: a.AccessToken, exp: Date.now() + (a.ExpiresIn || 3600) * 1000 };
+      saveAuth(AUTH); return AUTH.id;
+    } catch (_) { toLogin(); }
+  }
+  async function call(path, opts = {}) {
+    const t = await token();
+    const r = await fetch(`api/${path}`, { cache: "no-store", ...opts,
+      headers: { ...(opts.headers || {}), Authorization: `Bearer ${t}`, ...(opts.body ? { "content-type": "application/json" } : {}) } });
+    if (r.status === 401) { toLogin(); throw new Error("signed out"); }
+    return r;
+  }
+  if (LIVE) {
+    AUTH = readAuth();
+    if (!AUTH) toLogin();
+    else {
+      const c = claims(AUTH.id), g = c["cognito:groups"] || [];
+      ME = { email: c.email || AUTH.email || "", role: g.includes("admin") ? "admin" : "user" };
+      if (ME.role === "admin") call("me").then(r => r.json()).then(m => {
+        if (m.mfa === false) toast("Admin actions need two-step sign-in. <b>Sign out and sign in again</b> to set up your authenticator app.");
+      }).catch(() => {});
+    }
+  }
+
+  // live: the scorer publishes snapshots every minute; signed-in users read them through the API
+  const LIVE_CHECK = 60000;
+  let lastLiveAt = 0;
+  async function load(hours) {
+    if (LIVE && AUTH) {
+      try {
+        const r = await call(`data/${hours}`);
+        if (r.ok) {
+          const d = await r.json();
+          d.live = true;
+          d.stale = Date.now() / 1000 - d.generated > 300;
+          lastLiveAt = Date.now();
+          return d;
+        }
+      } catch (_) { /* no live feed yet */ }
+    }
+    return demo(hours);
+  }
+
+  // ---------- render ----------
+  let D, hours = 6;
+
+  function kpis() {
+    const k = D.kpis;
+    set("k-req", fmt(k.requests)); set("k-req-d", `last ${D.hours}h`);
+    set("k-flag", D.ladder.block + D.ladder.tarpit); set("k-flag-d", `${D.ladder.block} blocked, ${D.ladder.tarpit} tarpitted`);
+    set("k-decoy", k.decoyHits);
+    set("k-burn", dur(k.burnedSec));
+    set("k-burn-d", `${fmt(k.r429 || 0)} × 429 Retry-After 9`);
+    set("k-blocks", D.ladder.block); set("k-blocks-d", `blocked now, ${D.ladder.tarpit} more slowed`);
+    set("k-fp", k.fp7d);
+    const src = document.getElementById("src");
+    src.className = "pill" + (D.live && !D.stale ? "" : " demo");
+    src.lastChild.textContent = !D.live ? "Demo data" : D.stale ? "Live · stale" : "Live";
+    document.querySelector("#h-stream + .sub").textContent = D.live
+      ? "The mix of this window's real traffic: humans pass straight through, agents get pulled under."
+      : "Every dot is a request. Humans pass straight through; agents get pulled under.";
+    document.getElementById("foot-src").textContent = !D.live
+      ? "Demo data generated in the browser. Connect the scorer to see live traffic."
+      : D.stale ? "Live feed has not updated for over 5 minutes. Check the scorer's snapshot schedule."
+      : "Live from the Undertow scorer. Refreshes every minute.";
+    set("updated", new Date(D.generated * 1000).toLocaleTimeString());
+  }
+  function set(id, v) { document.getElementById(id).textContent = v; }
+
+  function ladder() {
+    const L = D.ladder, rows = [
+      ["Allow", L.allow, "rgba(241,238,230,.35)", "Passed untouched"],
+      ["Watch", L.watch, SERIES[2], "Error detail masked"],
+      ["Tarpit", L.tarpit, SERIES[3], "Delayed replies"],
+      ["Block", L.block, SERIES[1], "429 Retry-After 9, or stall"],
+    ];
+    const max = Math.max(L.watch, L.tarpit, L.block);
+    document.getElementById("ladder").innerHTML = rows.map(([n, v, c, w], i) => `
+      <div class="rung"><span>${n}</span>
+        <span class="bar"><b style="width:${i === 0 ? 100 : Math.max(4, v / max * 100)}%;background:${c}"></b></span>
+        <span class="n">${fmt(v)}</span><span class="what">${w}</span></div>`).join("");
+  }
+
+  function scoreChart() {
+    const svg = document.getElementById("score"), W = svg.clientWidth || 800, H = 260, P = { l: 34, r: 96, t: 10, b: 24 };
+    const top = D.actors.slice(0, 4);
+    const t0 = D.generated - D.hours * 3600, t1 = D.generated;
+    const x = t => P.l + (t - t0) / (t1 - t0) * (W - P.l - P.r), y = s => P.t + (1 - s) * (H - P.t - P.b);
+    let g = `<g class="axis">`;
+    for (let i = 0; i <= 4; i++) { const s = i / 4; g += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(s)}" y2="${y(s)}"/><text x="${P.l - 8}" y="${y(s) + 4}" text-anchor="end">${s.toFixed(2)}</text>`; }
+    for (let i = 0; i <= 6; i++) { const t = t0 + i / 6 * (t1 - t0); g += `<text x="${x(t)}" y="${H - 4}" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text>`; }
+    g += `</g>`;
+    [[0.3, "watch", SERIES[2]], [0.5, "tarpit", SERIES[3]], [0.8, "block", SERIES[1]]].forEach(([s, n, c]) => {
+      g += `<line class="thr" x1="${P.l}" x2="${W - P.r}" y1="${y(s)}" y2="${y(s)}" stroke="${c}" opacity=".55"/>`;
+    });
+    top.forEach((a, i) => {
+      const pts = a.series.filter(p => p[0] >= t0);
+      if (!pts.length) return;
+      const d = pts.map((p, j) => `${j ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+      g += `<path d="${d}" fill="none" stroke="${SERIES[i]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      const last = pts[pts.length - 1];
+      g += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" fill="${SERIES[i]}" stroke="${css("--surface")}" stroke-width="2"/>`;
+    });
+    // direct labels, de-collided
+    const lab = top.map((a, i) => ({ i, y: y(a.score), txt: a.ips[0] })).sort((p, q) => p.y - q.y);
+    for (let j = 1; j < lab.length; j++) if (lab[j].y - lab[j - 1].y < 14) lab[j].y = lab[j - 1].y + 14;
+    lab.forEach(l => { g += `<text x="${W - P.r + 10}" y="${l.y + 4}" fill="${css("--ink-2")}" style="font:11px var(--mono)">${esc(l.txt)}</text>`; });
+    g += `<line id="xh" y1="${P.t}" y2="${H - P.b}" stroke="rgba(255,255,255,.25)" stroke-width="1" opacity="0"/>`;
+    g += `<rect id="hit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/>`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = g;
+
+    document.getElementById("score-legend").innerHTML = top.map((a, i) =>
+      `<span><i class="sw" style="background:${SERIES[i]}"></i>${esc(a.ips[0])} · ${esc(who(a.key))}</span>`).join("");
+
+    const tip = document.getElementById("tip"), xh = svg.querySelector("#xh"), card = svg.closest(".card");
+    svg.querySelector("#hit").onmousemove = ev => {
+      const b = svg.getBoundingClientRect(), mx = (ev.clientX - b.left) * W / b.width;
+      const t = t0 + (mx - P.l) / (W - P.l - P.r) * (t1 - t0);
+      xh.setAttribute("x1", mx); xh.setAttribute("x2", mx); xh.setAttribute("opacity", 1);
+      const rows = top.map((a, i) => {
+        const p = a.series.reduce((best, q) => Math.abs(q[0] - t) < Math.abs(best[0] - t) ? q : best, a.series[0]);
+        return `<div class="r"><span><i class="sw" style="background:${SERIES[i]}"></i> ${esc(a.ips[0])}</span><span>${p[0] < t0 ? "–" : p[1].toFixed(2)}</span></div>`;
+      }).join("");
+      tip.innerHTML = `<div class="t">${new Date(t * 1000).toLocaleTimeString()}</div>${rows}`;
+      const cb = card.getBoundingClientRect();
+      let left = ev.clientX - cb.left + 14; if (left + 200 > cb.width) left -= 228;
+      tip.style.left = left + "px"; tip.style.top = (ev.clientY - cb.top - 20) + "px"; tip.style.opacity = 1;
+    };
+    svg.querySelector("#hit").onmouseleave = () => { tip.style.opacity = 0; xh.setAttribute("opacity", 0); };
+
+    document.getElementById("score-tbl").innerHTML = `<tr><th>Agent</th><th>Score</th><th>Verdict</th><th>Signals</th></tr>` +
+      top.map(a => `<tr><td class="m">${esc(a.ips[0])}</td><td class="m">${a.score.toFixed(2)}</td><td>${a.verdict}</td><td class="sig">${esc(a.signals.join(", "))}</td></tr>`).join("");
+  }
+
+  function feed(fresh) {
+    document.getElementById("feed").innerHTML = D.decoys.slice().sort((a, b) => b.ts - a.ts).map((d, i) => `
+      <li class="${fresh && i === 0 ? "fresh" : ""}"><span class="ago">${ago(D.generated - d.ts)}</span>
+        <div><div class="route">${esc(d.path)}</div>
+        <div class="meta">${esc(d.ip)}${d.replay ? '<span class="badge">cursor replay · same agent</span>' : ""}</div></div></li>`).join("");
+  }
+
+  let APP_FILTER = "";
+  function appFilter() {
+    const sel = document.getElementById("app-filter"), apps = D.apps || [];
+    sel.style.display = apps.length > 1 ? "" : "none";
+    sel.innerHTML = `<option value="">All apps</option>` + apps.map(a => `<option value="${esc(a.host)}" ${a.host === APP_FILTER ? "selected" : ""}>${esc(a.name || a.host)}</option>`).join("");
+    sel.onchange = () => { APP_FILTER = sel.value; blocks(); };
+  }
+  function blocks() {
+    const t = document.getElementById("blocks"), now = Date.now() / 1000;
+    t.innerHTML = `<tr><th>Agent</th><th>Score</th><th>Verdict</th><th>Expires</th><th>Why</th><th></th></tr>` +
+      D.actors.map((a, i) => APP_FILTER && a.app !== APP_FILTER ? "" : `<tr data-i="${i}" class="clickable" title="Open the replay">
+        <td class="m">${esc(a.ips[0])}${a.ips.length > 1 ? ` <span class="sig">+${a.ips.length - 1}</span>` : ""}</td>
+        <td class="m">${a.score.toFixed(2)}</td><td><span class="vt ${a.verdict}">${a.verdict}</span></td>
+        <td class="m" data-exp="${a.exp}">${ago(Math.max(0, a.exp - now))}</td>
+        <td class="sig">${esc(a.signals.slice(0, 3).join(", "))}</td>
+        <td><div class="acts admin-only">${labelBtns(a.key, a.labeled)}</div></td></tr>`).join("");
+    wireLabels(t);
+    t.querySelectorAll("tr[data-i]").forEach(tr => tr.onclick = e => {
+      if (!e.target.closest("button")) openReplay(D.actors[+tr.dataset.i].key);
+    });
+  }
+
+  function detectors() {
+    const max = Math.max(1, ...D.detectors.map(d => d.confirmed + d.fp));
+    document.getElementById("det").innerHTML = D.detectors.filter(d => d.confirmed + d.fp > 0).map(d => {
+      const p = d.confirmed / (d.confirmed + d.fp);
+      return `<div class="row"><div><div class="nm">${esc(d.name)}</div>
+        <div class="bars" title="${d.confirmed} confirmed, ${d.fp} false positive">
+          <b style="width:${d.confirmed / max * 100}%;background:${SERIES[0]}"></b>
+          ${d.fp ? `<b style="width:${d.fp / max * 100}%;background:${SERIES[1]}"></b>` : ""}</div></div>
+        <span class="p">${Math.round(p * 100)}%</span></div>`;
+    }).join("");
+  }
+
+  function strips() {
+    document.getElementById("strips").innerHTML = D.actors.slice(0, 4).map(a => `
+      <div class="strip"><div class="who" title="${esc(a.key)}">${esc(a.ips[0])} · ${esc(who(a.key))}</div>
+        <div class="chips">${a.phases.map((p, i) => `${i ? '<span class="arrow">→</span>' : ""}<span class="chip ${p === "probe" || p === "act" ? "hot" : p === "map" ? "map" : ""}">${p}</span>`).join("")}</div></div>`).join("");
+  }
+
+  // ---------- console: admin API, controls, the board, tuning ----------
+  const MOVE_TEXT = {
+    read_map: ["Read the API map", "Served a personal decoy map"],
+    read_decoy: ["Walked a decoy route", "Certain: no human goes there"],
+    login_attempt: ["Tried to log in", "Issued a honey session token"],
+    used_honey: ["Replayed our honey token", "Certain: it used what we gave it"],
+    used_honey_record: ["Used an ID from our fake data", "Certain: that record exists only in the decoy"],
+    followed_personal_decoy: ["Walked a route only it was shown", "Certain: identity locked to this agent"],
+    linked_rotation: ["Came back from a new IP", "Linked the new IP to the same agent"],
+    probe_errors: ["Probed with bad input", "Masked the error detail"],
+    ignored_retry_after: ["Ignored Retry-After", "Escalated: real clients back off"],
+    hammering: ["Kept going after refusal", "Escalated: loops do not give up"],
+    challenged: ["(operator)", "Challenge: deception on, no delay"],
+    edge_block: ["Crossed the line", "Blocked at the edge: 429 Retry-After 9"],
+    operator_tarpit: ["(operator)", "Tarpit by operator"],
+    unblocked: ["(operator)", "Unblocked and recorded as a false positive"],
+    judged: ["(the Judge)", "the Judge reviewed it"],
+    canary_key_used: ["Used the planted AWS key", "Breach tripwire fired: alert sent"],
+    entered_cell: ["Confirmed", "Moved into the padded cell: a fake app that seems to work"],
+    edge_cell: ["Crossed the line", "Routed to the padded cell at the edge"],
+    rabbit_hole: ["Went deep into fake routes", "Every object links three ways deeper"],
+    fake_write: ["Wrote data", "Accepted it; nothing was stored"],
+    polled_forever: ["Kept polling an export", "It sits at almost done, forever"],
+    cell_summary: ["(in the cell)", "Requests and time it has spent in the cell"],
+    flood_surge: ["Flooded the site", "Flood mode on: blocking the heaviest IPs"],
+    flood_block: ["(flood)", "Blocked flooding IPs at the edge: 429, never the cell"],
+    flood_pattern: ["(flood)", "One edge rule against what the flood shares"],
+    flood_pattern_removed: ["(flood)", "Flood rule removed from the edge"],
+    flood_over: ["(flood)", "Flood over: traffic back near its norm"],
+  };
+  // their move -> the moves of ours that answer it
+  const COUNTERS = {
+    used_honey: ["used_honey", "linked_rotation", "edge_block"],
+    followed_personal_decoy: ["followed_personal_decoy", "linked_rotation", "edge_block"],
+    hammering: ["hammering", "edge_block"], ignored_retry_after: ["ignored_retry_after", "edge_block"],
+    rabbit_hole: ["cell_summary"], fake_write: ["cell_summary"], polled_forever: ["cell_summary"],
+  };
+  const CERTAIN = new Set(["used_honey_record", "used_honey", "followed_personal_decoy", "linked_rotation", "read_decoy"]);
+  const DEFAULT_THR = { watch: 0.3, tarpit: 0.5, block: 0.8 };
+  let draft = null;   // tuning edits not yet applied
+
+  function setErr(id, msg) { document.getElementById(id).textContent = msg || ""; }
+
+  async function api(body) {
+    if (!D.live) return demoAct(body);
+    if (ME.role !== "admin") { toast("View-only account: ask an admin."); return false; }
+    try {
+      const r = await call("action", { method: "POST", body: JSON.stringify(body) });
+      const out = await r.json().catch(() => ({}));
+      if (r.status === 403) { toast("Admins only."); return false; }
+      if (!r.ok) { toast(`Refused: ${esc(out.error || r.status)}`); return false; }
+      toast(`Done: <code>${esc(body.action)}</code>${body.targets ? " " + esc(body.targets.join(", ")) : ""}`);
+      setTimeout(() => refresh(false), 800);
+      return true;
+    } catch (e) { toast("Admin API unreachable."); return false; }
+  }
+
+  function demoAct(body) {
+    const now = Date.now() / 1000, ip = (body.targets || [])[0];
+    const mv = (move, detail) => D.board.unshift({ ts: now, side: "us", move, actor: ip ? `manual:${ip}` : "", ip: ip || "", detail, play: "" });
+    if (body.action === "block" || body.action === "tarpit") {
+      D.actors.unshift({ key: `manual:${ip}`, ips: [ip], score: body.action === "block" ? 1 : 0.6, verdict: body.action,
+        signals: ["manual"], exp: now + (body.action === "block" ? 86400 : 3600), manual: true, series: [[now, 1]], phases: [] });
+      D.ladder[body.action]++; mv(body.action === "block" ? "edge_block" : "operator_tarpit", "operator");
+    } else if (body.action === "challenge") {
+      D.challenges.push({ ip, actor: body.actor || "", exp: now + 3600 });
+      D.watchlist.forEach(w => { if (w.ips.includes(ip)) w.challenged = true; }); mv("challenged", "operator challenge 1h");
+    } else if (body.action === "release") {
+      D.challenges = D.challenges.filter(c => c.ip !== ip); D.watchlist.forEach(w => { if (w.ips.includes(ip)) w.challenged = false; });
+    } else if (body.action === "unblock") {
+      const gone = D.actors.filter(a => a.ips.includes(ip));
+      D.actors = D.actors.filter(a => !a.ips.includes(ip));
+      gone.forEach(a => { D.ladder[a.verdict] = Math.max(0, D.ladder[a.verdict] - 1); if (!a.manual) D.kpis.fp7d++; });
+      D.allows.push({ cidr: `${ip}/32`, exp: now + 86400, reason: "dashboard" }); mv("unblocked", "operator");
+    } else if (body.action === "test_alert") {
+      D.alerting.recent.unshift({ ts: now, kind: "admin", subject: "test alert", sent: true });
+    } else if (body.action === "label") {
+      if (body.outcome === "person") {
+        D.actors = D.actors.filter(a => a.key !== body.actor); D.watchlist = (D.watchlist || []).filter(w => w.key !== body.actor);
+      } else D.actors.forEach(a => { if (a.key === body.actor) Object.assign(a, { labeled: "attacker", verdict: "block", score: 1 }); });
+      mv("labeled_" + body.outcome, "operator");
+    } else if (body.action === "set_policy") {
+      const p = body.policy;
+      D.policy = { ...D.policy, ...p, thresholds: { ...D.policy.thresholds, ...(p.thresholds || {}) },
+        weights: { ...D.policy.weights, ...(p.weights || {}) },
+        edge_controls: { ...D.policy.edge_controls, ...(p.edge_controls || {}) },
+        alerts: { ...D.policy.alerts, ...(p.alerts || {}) },
+        judge: { ...(D.policy.judge || {}), ...(p.judge || {}) } };
+      D.mode = D.policy.mode;
+      D.detectors.forEach(d => { if (p.weights && d.name in p.weights) d.weight = p.weights[d.name]; });
+    }
+    D.audit.unshift({ ts: now, action: body.action, who: "you (demo)", body: JSON.stringify(body) });
+    toast(`Demo: <code>${esc(body.action)}</code> applied locally. Live, it goes through the admin API.`);
+    renderAll(false);
+    return true;
+  }
+
+  function adminState() {
+    document.getElementById("who-text").textContent = LIVE ? `${ME.email} · ${ME.role}` : "demo · admin";
+    document.body.classList.toggle("viewer", ME.role !== "admin");
+    document.querySelectorAll("#tune-thr input, #tune-w input, [data-ec] input, #ec-ja4, #ec-geo, #ec-asn, #al-kinds input, #jd-on, #jd-cap, #vf-crawlers, #vf-dirs, #key-name, #key-kind, #ds-type, #ds-name, #ds-url, #ds-token, #ap-host, #ap-name, #ap-origin, #ap-tarpit, #ap-block")
+      .forEach(i => { i.disabled = ME.role !== "admin"; });
+  }
+
+  // an admin action whose result the page needs (a new key, a timeline)
+  async function apiOut(body) {
+    if (!D.live) {
+      if (body.action === "create_key") {
+        const key = "uk_demo" + Math.random().toString(16).slice(2, 14);
+        DEMO_KEYS.unshift({ id: key.slice(0, 16), name: body.name, kind: body.kind, prefix: key.slice(0, 9), at: Date.now() / 1000, revoked: false });
+        return { key };
+      }
+      if (body.action === "revoke_key") { DEMO_KEYS.forEach(k => { if (k.id === body.id) k.revoked = true; }); return {}; }
+      demoAct(body); return {};
+    }
+    if (ME.role !== "admin") { toast("View-only account: ask an admin."); return null; }
+    try {
+      const r = await call("action", { method: "POST", body: JSON.stringify(body) });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(`Refused: ${esc(out.error || r.status)}`); return null; }
+      return out;
+    } catch (_) { toast("Admin API unreachable."); return null; }
+  }
+
+  // ---------- Integrations: verified agents and keys ----------
+  const DEMO_KEYS = [{ id: "3f9a1c0d2b7e4a55", name: "acme-sync", kind: "client", prefix: "uk_8c41d2", at: Date.now() / 1000 - 86400 * 4, revoked: false }];
+  let KEYS = null;
+  async function loadKeys() {
+    if (!LIVE || !D || !D.live) { KEYS = DEMO_KEYS; return renderKeys(); }
+    if (ME.role !== "admin") return;
+    try { const r = await call("keys"); const o = await r.json(); if (r.ok) { KEYS = o.keys; renderKeys(); } } catch (_) {}
+  }
+  function renderKeys() {
+    const now = Date.now() / 1000;
+    document.getElementById("keys").innerHTML = (KEYS || []).length
+      ? `<tr><th>Name</th><th>Kind</th><th>Starts with</th><th>Created</th><th></th></tr>` + KEYS.map(k => `<tr>
+          <td>${esc(k.name)}</td><td><span class="sig">${esc(k.kind)}</span></td><td class="m">${esc(k.prefix)}…</td>
+          <td class="m">${ago(Math.max(0, now - k.at))}</td>
+          <td>${k.revoked ? '<span class="sig">revoked</span>' : `<button class="ub small admin-only" data-revoke="${esc(k.id)}">Revoke</button>`}</td></tr>`).join("")
+      : `<tr><td class="sig">No keys yet.</td></tr>`;
+    document.querySelectorAll("#keys [data-revoke]").forEach(b => b.onclick = async () => {
+      if (!b.classList.contains("confirm")) { b.classList.add("confirm"); b.textContent = "Confirm"; return; }
+      if (await apiOut({ action: "revoke_key", id: b.dataset.revoke })) { toast("Key revoked."); loadKeys(); }
+    });
+  }
+  document.getElementById("key-create").onclick = async () => {
+    const name = document.getElementById("key-name").value.trim(), kind = document.getElementById("key-kind").value;
+    setErr("key-err", "");
+    if (!name) return setErr("key-err", "Give the key a name.");
+    const out = await apiOut({ action: "create_key", name, kind });
+    if (out && out.key) {
+      document.getElementById("key-new").innerHTML = `<p class="hint">Copy it now, it is not shown again: <code>${esc(out.key)}</code></p>`;
+      document.getElementById("key-name").value = "";
+      loadKeys();
+    }
+  };
+  // ---------- Integrations: outbound destinations and shared indicators ----------
+  let DESTS = null;
+  const DEMO_DESTS = [{ id: "a1b2c3d4e5f6", name: "soc-alerts", type: "slack", host: "hooks.slack.com", kinds: ["breach", "decoy", "edge_block"], last_status: "200", last_at: Date.now() / 1000 - 3600 }];
+  async function loadDests() {
+    if (!LIVE || !D || !D.live) { DESTS = DEMO_DESTS; return renderDests(); }
+    if (ME.role !== "admin") return;
+    try { const r = await call("destinations"); const o = await r.json(); if (r.ok) { DESTS = o.destinations; renderDests(); } } catch (_) {}
+  }
+  function renderDests() {
+    const now = Date.now() / 1000;
+    document.getElementById("dests").innerHTML = (DESTS || []).length
+      ? `<tr><th>Name</th><th>Type</th><th>Host</th><th>Sends</th><th>Last delivery</th><th></th></tr>` + DESTS.map(d => `<tr>
+          <td>${esc(d.name)}</td><td class="m">${esc(d.type)}</td><td class="m">${esc(d.host)}</td><td class="sig">${esc((d.kinds || []).join(", "))}</td>
+          <td class="m">${d.last_at ? `${esc(d.last_status)} · ${ago(Math.max(0, now - d.last_at))}` : "–"}</td>
+          <td><div class="acts admin-only"><button class="ub small" data-dtest="${esc(d.id)}">Test</button>
+            <button class="ub small" data-drm="${esc(d.id)}">Remove</button></div></td></tr>`).join("")
+      : `<tr><td class="sig">No destinations. Alerts go to email only.</td></tr>`;
+    document.querySelectorAll("#dests [data-dtest]").forEach(b => b.onclick = async () => {
+      const o = await apiOut({ action: "test_destination", id: b.dataset.dtest });
+      if (o) { toast(o.delivered ? "Test delivered." : "Test not delivered: see Last delivery."); loadDests(); }
+    });
+    document.querySelectorAll("#dests [data-drm]").forEach(b => b.onclick = async () => {
+      if (!b.classList.contains("confirm")) { b.classList.add("confirm"); b.textContent = "Confirm"; return; }
+      if (D.live) { if (await apiOut({ action: "remove_destination", id: b.dataset.drm })) loadDests(); }
+      else { DEMO_DESTS.splice(DEMO_DESTS.findIndex(d => d.id === b.dataset.drm), 1); renderDests(); }
+    });
+  }
+  document.getElementById("ds-add").onclick = async () => {
+    const v = id => document.getElementById(id).value.trim();
+    setErr("ds-err", "");
+    if (!v("ds-url").startsWith("https://")) return setErr("ds-err", "Give an https:// URL.");
+    const body = { action: "add_destination", type: v("ds-type"), name: v("ds-name"), url: v("ds-url"), token: v("ds-token") || undefined };
+    if (!D.live) { DEMO_DESTS.push({ id: Math.random().toString(16).slice(2, 14), name: body.name || body.type, type: body.type, host: new URL(body.url).host, kinds: [], last_status: "", last_at: 0 }); return renderDests(); }
+    const o = await apiOut(body);
+    if (o) {
+      ["ds-name", "ds-url", "ds-token"].forEach(id => { document.getElementById(id).value = ""; });
+      document.getElementById("ds-new").innerHTML = o.secret ? `<p class="hint">Signing secret, shown once: <code>${esc(o.secret)}</code></p>` : "";
+      loadDests();
+    }
+  };
+  function appsPanel() {
+    const apps = D.apps || [], conf = (D.policy || {}).apps || {};
+    document.getElementById("apps").innerHTML = apps.length
+      ? `<tr><th>Host</th><th>Name</th><th>Requests</th><th>Flagged</th><th>Cell copies</th><th>Lines</th><th></th></tr>` + apps.map(a => {
+          const c = conf[a.host] || {}, t = c.thresholds || {};
+          return `<tr><td class="m">${esc(a.host)}</td><td>${esc(a.name || "–")}</td><td class="m">${fmt(a.requests)}</td><td class="m">${a.flagged}</td>
+            <td class="m">${esc(a.origin || "default")}</td><td class="m">${t.tarpit || t.block ? `tarpit ${t.tarpit ?? "–"} / block ${t.block ?? "–"}` : "global"}</td>
+            <td>${conf[a.host] ? `<button class="ub small admin-only" data-apprm="${esc(a.host)}">Reset</button>` : ""}</td></tr>`; }).join("")
+      : `<tr><td class="sig">No traffic yet.</td></tr>`;
+    document.querySelectorAll("#apps [data-apprm]").forEach(b => b.onclick = () =>
+      api({ action: "set_policy", policy: { apps: { [b.dataset.apprm]: null } } }));
+  }
+  document.getElementById("ap-save").onclick = () => {
+    const v = id => document.getElementById(id).value.trim(), host = v("ap-host").toLowerCase();
+    if (!host) return toast("Give the app's host.");
+    const thresholds = {};
+    if (v("ap-tarpit")) thresholds.tarpit = +v("ap-tarpit");
+    if (v("ap-block")) thresholds.block = +v("ap-block");
+    api({ action: "set_policy", policy: { apps: { [host]: { name: v("ap-name"), origin: v("ap-origin"), thresholds } } } });
+  };
+
+  async function downloadIndicators(stixFmt) {
+    let data;
+    if (D.live) {
+      try { const r = await call(stixFmt ? "indicators.stix" : "indicators"); data = await r.json(); if (!r.ok) throw new Error(); }
+      catch (_) { return toast("Could not fetch indicators."); }
+    } else data = { generated: Math.floor(Date.now() / 1000), indicators: (D.actors || []).filter(a => a.verdict === "block").flatMap(a => a.ips.map(ip => ({ type: "ipv4", value: ip, verdict: a.verdict, confidence: Math.round(a.score * 100) }))) };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    a.download = stixFmt ? "undertow-indicators.stix.json" : "undertow-indicators.json";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  document.getElementById("ind-json").onclick = () => downloadIndicators(false);
+  document.getElementById("ind-stix").onclick = () => downloadIndicators(true);
+
+  function verifiedPanel() {
+    const v = { crawlers: true, directories: [], ...((D.policy || {}).verified || {}) };
+    document.getElementById("vf-crawlers").checked = v.crawlers !== false;
+    const ta = document.getElementById("vf-dirs");
+    if (document.activeElement !== ta) ta.value = (v.directories || []).join("\n");
+    document.getElementById("vf-stat").textContent = `${fmt((D.kpis || {}).verified || 0)} verified requests in this window.`;
+    document.getElementById("vd-url").innerHTML = D.verdict_url
+      ? `Verdict API: <code>POST ${esc(D.verdict_url)}</code> with <code>{"ip","method","path","query","headers"}</code>. Adapters for API Gateway, Envoy, nginx and Cloudflare Workers are in <code>adapters/</code>.`
+      : "";
+  }
+  document.getElementById("vf-apply").onclick = () => {
+    const dirs = document.getElementById("vf-dirs").value.split(/\s+/).map(s => s.trim()).filter(Boolean);
+    api({ action: "set_policy", policy: { verified: { crawlers: document.getElementById("vf-crawlers").checked, directories: dirs } } });
+  };
+
+  const RP_FEEDS = ["datacenter", "tor", "greynoise", "abuseipdb"];
+  function reputationPanel() {
+    const r = { enabled: true, feeds: {}, ...((D.policy || {}).reputation || {}) };
+    const f = { datacenter: true, tor: true, greynoise: false, abuseipdb: false, ...(r.feeds || {}) };
+    document.getElementById("rp-enabled").checked = r.enabled !== false;
+    RP_FEEDS.forEach(n => { document.getElementById("rp-" + n).checked = !!f[n]; });
+    document.getElementById("rp-stat").textContent =
+      `${fmt((D.kpis || {}).reputation || 0)} requests from a known-bad or datacenter IP in this window.`;
+  }
+  document.getElementById("rp-apply").onclick = () => {
+    const feeds = {};
+    RP_FEEDS.forEach(n => { feeds[n] = document.getElementById("rp-" + n).checked; });
+    api({ action: "set_policy", policy: { reputation: { enabled: document.getElementById("rp-enabled").checked, feeds } } });
+  };
+
+  // ---------- Users tab (admins) ----------
+  let USERS = null;
+  const DEMO_USERS = () => [
+    { username: "u1", email: "owner@example.com", role: "admin", status: "CONFIRMED", enabled: true, created: Date.now() / 1000 - 86400 * 3 },
+    { username: "u2", email: "analyst@example.com", role: "user", status: "CONFIRMED", enabled: true, created: Date.now() / 1000 - 86400 },
+    { username: "u3", email: "newhire@example.com", role: "user", status: "FORCE_CHANGE_PASSWORD", enabled: true, created: Date.now() / 1000 - 3600 },
+  ];
+  async function loadUsers() {
+    setErr("users-err", "");
+    if (!LIVE) { USERS = USERS || DEMO_USERS(); return renderUsers(); }
+    try {
+      const r = await call("users");
+      const out = await r.json();
+      if (!r.ok) return setErr("users-err", out.error || "Could not load users.");
+      USERS = out.users; renderUsers();
+    } catch (_) { setErr("users-err", "Could not reach the API."); }
+  }
+  function renderUsers() {
+    const status = { CONFIRMED: ["active", ""], FORCE_CHANGE_PASSWORD: ["invited, not signed in yet", "warn"],
+                     RESET_REQUIRED: ["must reset password", "warn"] };
+    document.getElementById("users").innerHTML = `<tr><th>Email</th><th>Role</th><th>Status</th><th>Since</th><th></th></tr>` +
+      USERS.map(u => {
+        const [st, cls] = u.enabled ? (status[u.status] || [u.status.toLowerCase(), ""]) : ["disabled", "warn"];
+        const mine = u.email === ME.email || (!LIVE && u.username === "u1");
+        return `<tr><td class="m">${esc(u.email)}${mine ? ' <span class="sig">(you)</span>' : ""}</td>
+          <td><span class="role ${u.role}">${u.role}</span></td><td><span class="st ${cls}">${esc(st)}</span></td>
+          <td class="m">${ago(Math.max(0, Date.now() / 1000 - u.created))}</td>
+          <td><div class="acts">${mine ? "" : `
+            <button class="ub small" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}">Make ${u.role === "admin" ? "user" : "admin"}</button>`}
+            <button class="ub small" data-op="reset" data-u="${esc(u.username)}">${u.status === "FORCE_CHANGE_PASSWORD" ? "Resend invite" : "Reset password"}</button>
+            ${u.status === "FORCE_CHANGE_PASSWORD" ? "" : `<button class="ub small" data-op="reset_mfa" data-u="${esc(u.username)}" title="Lost their authenticator: they set up a new one at next sign-in">Reset MFA</button>`}
+            ${mine ? "" : `<button class="ub small" data-op="${u.enabled ? "disable" : "enable"}" data-u="${esc(u.username)}">${u.enabled ? "Disable" : "Enable"}</button>
+            <button class="ub small" data-op="delete" data-u="${esc(u.username)}">Delete</button>`}</div></td></tr>`;
+      }).join("");
+    document.querySelectorAll("#users button[data-op]").forEach(b => b.onclick = () => {
+      const label = b.textContent;
+      if (!b.classList.contains("confirm")) {
+        b.classList.add("confirm"); b.textContent = "Confirm";
+        setTimeout(() => { b.classList.remove("confirm"); b.textContent = label; }, 3500);
+        return;
+      }
+      b.classList.remove("confirm"); b.textContent = label;
+      userOp({ op: b.dataset.op, username: b.dataset.u, role: b.dataset.role });
+    });
+  }
+  async function userOp(body) {
+    setErr("users-err", ""); setErr("inv-err", "");
+    if (!LIVE) {
+      const u = USERS.find(x => x.username === body.username);
+      if (body.op === "invite") USERS.push({ username: "u" + (USERS.length + 1), email: body.email, role: body.role, status: "FORCE_CHANGE_PASSWORD", enabled: true, created: Date.now() / 1000 });
+      if (body.op === "role") u.role = body.role;
+      if (body.op === "disable") u.enabled = false;
+      if (body.op === "enable") u.enabled = true;
+      if (body.op === "delete") USERS = USERS.filter(x => x !== u);
+      toast(`Demo: users <code>${esc(body.op)}</code>. Live, the system sends the email.`);
+      return renderUsers(), true;
+    }
+    try {
+      const r = await call("users", { method: "POST", body: JSON.stringify(body) });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(body.op === "invite" ? "inv-err" : "users-err", out.error || "Refused."); return false; }
+      const msg = { invite: `Invite emailed to ${body.email}.`, reset: out.resent_invite ? "Invite emailed again." : "Reset code emailed.",
+                    role: `Role changed to ${body.role}.`, disable: "Disabled and signed out.", enable: "Enabled.", delete: "Deleted." }[body.op];
+      toast(esc(msg || "Done.")); loadUsers(); return true;
+    } catch (_) { setErr("users-err", "Could not reach the API."); return false; }
+  }
+
+  const VIEWS = ["overview", "agents", "deception", "controls", "budget", "users", "help"];
+  function showTab(name, sub) {
+    if (!VIEWS.includes(name) || (name === "users" && ME.role !== "admin")) name = "overview";
+    VIEWS.forEach(v => {
+      const t = document.getElementById("tab-" + v), el = document.getElementById("view-" + v);
+      if (t) t.setAttribute("aria-selected", v === name);
+      if (el) el.classList.toggle("hidden", v !== name);
+    });
+    if (name === "controls") showSub(sub || showSub.cur || "enf");
+    else try { history.replaceState(null, "", "#" + name); } catch (_) {}
+    if (name === "users") loadUsers();
+    else if (D) { if (name === "agents") scoreChart(); if (name === "budget") budgetChart(); if (name === "overview") window.dispatchEvent(new Event("resize")); }
+  }
+  function showSub(k) {
+    if (!document.querySelector(`[data-subview="${k}"]`)) k = "enf";
+    showSub.cur = k;
+    document.querySelectorAll("[data-subview]").forEach(v => v.classList.toggle("hidden", v.dataset.subview !== k));
+    document.querySelectorAll(".subtabs button").forEach(b => b.setAttribute("aria-current", b.dataset.sub === k));
+    try { history.replaceState(null, "", "#controls/" + k); } catch (_) {}
+    if (k === "integ" && D) { loadKeys(); loadDests(); }
+  }
+
+  function controls() {
+    const p = D.policy || {};
+    document.querySelectorAll("#mode-ctl button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === (p.mode || D.mode)));
+    document.querySelectorAll("#edge-ctl button").forEach(b => b.setAttribute("aria-pressed", b.dataset.edge === (p.edge || "block")));
+    adminState();
+  }
+
+  function norm() {
+    const a = D.anomalies || { learning: true, series: [], flags: [] };
+    const s = a.series || [], svg = document.getElementById("spark"), W = svg.clientWidth || 600, H = 90, P = 6;
+    const mx = Math.max(1, ...s);
+    const xs = i => P + i / Math.max(1, s.length - 1) * (W - 2 * P), ys = v => H - P - v / mx * (H - 2 * P - 12);
+    const line = s.map((v, i) => `${i ? "L" : "M"}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join("");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.innerHTML = s.length ? `
+      <path d="${line} L${xs(s.length - 1)},${H - P} L${xs(0)},${H - P}Z" fill="rgba(200,255,62,.07)"/>
+      <path d="${line}" fill="none" stroke="${SERIES[0]}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      ${s.map((v, i) => `<rect x="${xs(i) - (W / s.length) / 2}" y="0" width="${W / s.length}" height="${H}" fill="transparent"><title>${60 - i} min ago: ${v} requests</title></rect>`).join("")}` : "";
+    document.getElementById("spark-label").textContent = s.length ? `Requests per minute, last 60 minutes · peak ${mx}` : "";
+    const names = { req: "requests", refused: "refusals", auth: "login traffic", recon: "API-map reads", decoy: "decoy hits" };
+    document.getElementById("norm-flags").innerHTML = a.learning
+      ? `<span class="calm">Learning the baseline: judges after about an hour of traffic.</span>`
+      : a.flags.length ? a.flags.map(f => `<span class="anom" title="baseline ${f.baseline} per 5 min">${names[f.metric] || f.metric} ×${(f.now / Math.max(1, f.baseline)).toFixed(1)} · z ${f.z}</span>`).join("")
+      : `<span class="calm">Nothing out of norm in the last 5 minutes.</span>`;
+    document.getElementById("new-agents").innerHTML = (D.newAgents || []).slice(0, 5).map(u =>
+      `<div><span>new client <b>${esc(u.ua || "(none)")}</b></span><span>${fmt(u.n)} req · ${ago(D.generated - u.first)} ago</span></div>`).join("");
+  }
+
+  // ---------- agent replay ----------
+  const b64u = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const SERVED = { app: ["answered by the app", "var(--s1)"], edge: ["stopped at the edge", "var(--s2)"], cell: ["in the padded cell", "var(--s3)"] };
+  async function openReplay(key) {
+    const dlg = document.getElementById("replay"), body = document.getElementById("rp-body");
+    body.innerHTML = `<p class="sig">Loading…</p>`;
+    if (!dlg.open) dlg.showModal();
+    let R;
+    if (D.live) {
+      try { const r = await call(`actor/${b64u(key)}`); R = await r.json(); if (!r.ok) throw new Error(R.error || r.status); }
+      catch (e) { body.innerHTML = `<p class="err">Could not load the replay: ${esc(String(e.message || e))}</p>`; return; }
+    } else R = demoReplay(key);
+    renderReplay(R);
+  }
+  document.getElementById("rp-close").onclick = () => document.getElementById("replay").close();
+  function demoReplay(key) {
+    const a = (D.actors || []).find(x => x.key === key) || { ips: ["203.0.113.7"], score: 0.4, verdict: "watch", signals: [] };
+    const r = rng(key.length * 7919), t0 = Date.now() / 1000 - 1800, ev = [];
+    const paths = ["/openapi.json", "/api/products", "/api/orders/ord_3f9a1c0d2b7e4a55", "/api/auth/login", "/api/v1/internal/ops/export", "/api/orders"];
+    for (let i = 0, t = t0; i < 46; i++) {
+      t += i % 6 === 5 ? 20 + r() * 10 : 0.6 + r();
+      const served = i > 34 ? "cell" : i > 28 && r() < 0.6 ? "edge" : "app", p = paths[Math.floor(r() * paths.length)];
+      ev.push({ ts: t, m: p.includes("login") ? "POST" : "GET", path: p, q: i === 12 ? "q=' OR '1'='1" : "", status: served === "edge" ? 429 : 0,
+        ip: a.ips[0], phase: p.includes("openapi") ? "map" : p.includes("login") ? "identity" : "read", served,
+        marks: [p.includes("internal/ops") ? "decoy" : "", i === 12 ? "attack payload" : ""].filter(Boolean) });
+    }
+    return { actor: key, ips: a.ips, uas: [uaOf(key)], verdict: a.verdict, score: a.score, signals: a.signals, labeled: a.labeled || "",
+      first: ev[0].ts, last: ev[ev.length - 1].ts, requests: ev.length, events: ev, campaign: null,
+      served: { app: ev.filter(e => e.served === "app").length, edge: ev.filter(e => e.served === "edge").length, cell: ev.filter(e => e.served === "cell").length },
+      moves: [{ ts: t0 + 60, move: "read_map", side: "them", detail: "/openapi.json", play: "" }, { ts: ev[35].ts, move: "entered_cell", side: "us", detail: "", play: "" }],
+      cell: { requests: 11, tokens: 77000, cost: 0.26 } };
+  }
+  function renderReplay(R) {
+    const ev = R.events || [], t0 = R.first || 0, t1 = Math.max(t0 + 1, R.last || 0);
+    const W = 1000, H = 118, L = 128, P = 10, lanes = ["app", "edge", "cell"];
+    const x = t => L + (t - t0) / (t1 - t0) * (W - L - P), y = k => 22 + lanes.indexOf(k) * 34;
+    const fmtT = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const svg = `<svg class="rp-strip" viewBox="0 0 ${W} ${H}" role="img" aria-label="Each request over time, by what answered it">
+      ${lanes.map(k => `<line x1="${L}" x2="${W - P}" y1="${y(k)}" y2="${y(k)}" stroke="var(--hair)" stroke-width="1"/>
+        <text x="${L - 10}" y="${y(k) + 4}" text-anchor="end" fill="var(--ink-2)" font-size="12" font-family="var(--sans)">${SERVED[k][0]}</text>`).join("")}
+      ${ev.map(e => `<circle cx="${x(e.ts).toFixed(1)}" cy="${y(e.served)}" r="${e.marks.length ? 6 : 4}" fill="${e.marks.length ? "none" : SERVED[e.served][1]}"
+        stroke="${e.marks.length ? "var(--s4)" : "var(--card)"}" stroke-width="2"><title>${esc(fmtT(e.ts))} ${esc(e.m)} ${esc(e.path)}${e.q ? "?" + esc(e.q) : ""} · ${esc(e.phase)}${e.marks.length ? " · " + esc(e.marks.join(", ")) : ""}</title></circle>`).join("")}
+      <text x="${L}" y="${H - 4}" fill="var(--ink-3)" font-size="11" font-family="var(--mono)">${esc(fmtT(t0))}</text>
+      <text x="${W - P}" y="${H - 4}" text-anchor="end" fill="var(--ink-3)" font-size="11" font-family="var(--mono)">${esc(fmtT(t1))}</text></svg>`;
+    const S = R.served || {};
+    document.getElementById("rp-title").textContent = `Agent replay · ${(R.ips || [])[0] || ""}`;
+    document.getElementById("rp-body").innerHTML = `
+      <div class="rp-sum"><span class="vt ${esc(R.verdict)}">${esc(R.verdict)} ${(+R.score || 0).toFixed(2)}</span>
+        <span><b>${R.requests}</b> requests</span><span><b>${S.app || 0}</b> app</span><span><b>${S.edge || 0}</b> edge</span><span><b>${S.cell || 0}</b> cell</span>
+        <span class="sig">${esc((R.uas || []).join(" · "))}</span>${(R.ips || []).length > 1 ? `<span class="sig">${R.ips.length} IPs</span>` : ""}
+        ${R.campaign ? `<span class="vt tarpit">campaign: ${R.campaign.actors} actors, ${R.campaign.nets} networks</span>` : ""}
+        <span class="acts admin-only">${labelBtns(R.actor, R.labeled)}</span></div>
+      ${svg}
+      <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>app</span><span><i class="sw" style="background:var(--s2)"></i>edge</span>
+        <span><i class="sw" style="background:var(--s3)"></i>cell</span><span><i class="sw" style="background:none;border:2px solid var(--s4)"></i>decoy, payload or honey token</span></div>
+      <div class="rp-cols"><div><h3 class="mini">Requests (latest ${Math.min(60, ev.length)})</h3><div style="overflow-x:auto"><table>
+        <tr><th>Time</th><th>Request</th><th>Status</th><th>Answered</th><th>Phase</th><th>Notes</th></tr>
+        ${ev.slice(-60).reverse().map(e => `<tr><td class="m">${esc(fmtT(e.ts))}</td><td class="m">${esc(e.m)} ${esc(e.path)}${e.q ? `<div class="sig">?${esc(e.q)}</div>` : ""}</td>
+          <td class="m">${e.status || "–"}</td><td class="m">${esc(e.served)}</td><td class="m">${esc(e.phase)}</td><td class="sig">${esc(e.marks.join(", "))}</td></tr>`).join("")}
+      </table></div></div>
+      <div><h3 class="mini">Why</h3><ul class="feed">${(R.signals || []).map(s => `<li><div class="meta">${esc(s)}</div></li>`).join("") || `<li><div class="meta">No signals.</div></li>`}</ul>
+        ${R.cell ? `<h3 class="mini">In the cell</h3><p class="sub">${fmt(R.cell.requests || 0)} turns · ${fmt(R.cell.tokens || 0)} tokens fed · ≈ $${(+R.cell.cost || 0).toFixed(2)} of theirs</p>` : ""}
+        <h3 class="mini">Moves</h3><ul class="feed">${(R.moves || []).slice(-20).reverse().map(m => `<li><span class="ago">${esc(fmtT(m.ts))}</span>
+          <div><div class="route">${esc((MOVE_TEXT[m.move] || [m.move])[0])}</div><div class="meta">${esc(m.side === "them" ? "their move" : "our move")}${m.detail ? " · " + esc(m.detail) : ""}</div></div></li>`).join("") || `<li><div class="meta">No moves.</div></li>`}</ul></div></div>`;
+    wireLabels(document.getElementById("rp-body"));
+    adminState();
+  }
+
+  // ground truth in one click: it teaches auto-tune which detectors to trust
+  function labelBtns(key, done) {
+    if (done) return `<span class="sig">labeled ${esc(done)}</span>`;
+    return `<button class="ub small" data-label="attacker" data-actor="${esc(key)}" title="Confirm: an attacker. Holds it at block and counts its signals as right.">Attacker</button>
+      <button class="ub small" data-label="person" data-actor="${esc(key)}" title="This was a person. Clears it, allows its IPs 24h, counts its signals as wrong.">Person</button>`;
+  }
+  function wireLabels(root) {
+    root.querySelectorAll("button[data-label]").forEach(b => b.onclick = () => {
+      const txt = b.textContent;
+      if (!b.classList.contains("confirm")) {
+        b.classList.add("confirm"); b.textContent = "Confirm";
+        setTimeout(() => { b.classList.remove("confirm"); b.textContent = txt; }, 3500);
+        return;
+      }
+      api({ action: "label", actor: b.dataset.actor, outcome: b.dataset.label, reason: "dashboard" });
+    });
+  }
+
+  function watchlist() {
+    const w = D.watchlist || [];
+    document.getElementById("watchlist").innerHTML = w.length ? w.map(x => `
+      <li><div><div class="route">${esc(x.ips[0] || "")} <span class="sc">${(+x.score).toFixed(2)}</span></div>
+        <div class="meta">${esc((x.signals || []).join(", ") || "no signals yet")}</div></div>
+        <div class="acts admin-only"><button class="ub small" data-ip="${esc(x.ips[0] || "")}" data-actor="${esc(x.key)}" data-on="${x.challenged ? 1 : 0}">${x.challenged ? "Release" : "Challenge"}</button>
+        ${labelBtns(x.key)}</div></li>`).join("")
+      : `<li><span class="ago">–</span><div class="meta">Nobody near the line right now.</div></li>`;
+    wireLabels(document.getElementById("watchlist"));
+    document.querySelectorAll("#watchlist .route").forEach((r, i) => { r.style.cursor = "pointer"; r.title = "Open the replay"; r.onclick = () => openReplay(w[i].key); });
+    document.querySelectorAll("#watchlist button[data-on]").forEach(b => b.onclick = () =>
+      api(b.dataset.on === "1" ? { action: "release", targets: [b.dataset.ip] }
+        : { action: "challenge", targets: [b.dataset.ip], actor: b.dataset.actor, hours: 1 }));
+  }
+
+  const CAMP_STATUS = { confirmed: ["confirmed attacker inside", "block"], attacking: ["attacking together", "tarpit"], fleet: ["same tool, same path", "watch"] };
+  function campaignsPanel() {
+    const cs = D.campaigns || [];
+    document.getElementById("campaigns").innerHTML = cs.length
+      ? `<tr><th>Status</th><th>Actors</th><th>Networks</th><th>IPs</th><th>Routes they share</th><th>Blocked</th><th>Last seen</th></tr>` +
+        cs.map(c => { const [txt, cls] = CAMP_STATUS[c.status] || [c.status, "watch"]; return `<tr>
+          <td><span class="vt ${cls}">${esc(txt)}</span></td><td class="m">${c.actors}</td><td class="m">${c.nets}</td>
+          <td class="m">${esc(c.ips.slice(0, 3).join(", "))}${c.ip_count > 3 ? ` <span class="sig">+${c.ip_count - 3}</span>` : ""}</td>
+          <td><div class="tq">${c.routes.map(r => `<span>${esc(r)}</span>`).join("")}</div></td>
+          <td class="m">${c.blocked}/${c.actors}</td><td class="m">${ago(Math.max(0, D.generated - c.last))}</td></tr>`; }).join("")
+      : `<tr><td class="sig">No campaigns. One shows up when 3 or more networks run the same tool down the same routes.</td></tr>`;
+  }
+
+  function board() {
+    const sel = document.getElementById("board-filter"), keep = sel.value;
+    const actors = [...new Set((D.board || []).map(m => m.actor).filter(Boolean))];
+    sel.innerHTML = `<option value="">All agents</option>` + actors.map(a => `<option value="${esc(a)}">${esc(a.split("|")[0].replace("net:", ""))} · ${esc(uaOf(a))}</option>`).join("");
+    sel.value = actors.includes(keep) ? keep : "";
+    const rows = (D.board || []).filter(m => !sel.value || m.actor === sel.value);
+    // pass 1: pair each of their moves with our nearest counter to it (same move, same agent)
+    const used = new Set(), pair = new Map();
+    rows.forEach((m, i) => {
+      if (m.side !== "them") return;
+      let j = -1;
+      for (const mv of COUNTERS[m.move] || [m.move]) {   // first choice is the direct counter
+        j = rows.findIndex((x, k) => !used.has(k) && Math.abs(k - i) <= 3 && x.side === "us" && x.move === mv && x.actor === m.actor);
+        if (j >= 0) break;
+      }
+      if (j >= 0) { used.add(j); pair.set(i, rows[j]); }
+    });
+    // pass 2: one row per pairing, plus our unpaired moves (escalations, operator actions)
+    const out = [];
+    rows.forEach((m, i) => {
+      const t = MOVE_TEXT[m.move] || [m.move, m.play || m.move];
+      if (m.side === "them") {
+        const us = pair.get(i);
+        const ut = us ? (MOVE_TEXT[us.move] || [us.move, us.move])[1] : "";
+        out.push({ m, them: `${t[0]}${m.detail ? ` <span class="who">${esc(m.detail)}</span>` : ""}`,
+                   us: us ? `${ut}${us.detail ? ` <div class="who">${esc(us.detail)}</div>` : ""}` : "" });
+      } else if (!used.has(i)) {
+        out.push({ m, them: "", us: `${t[1]}${m.detail ? ` <div class="who">${esc(m.detail)}</div>` : ""}` });
+      }
+    });
+    document.getElementById("board").innerHTML = out.length ? out.slice(0, 40).map(r => `
+      <li class="${CERTAIN.has(r.m.move) ? "cert" : ""}">
+        <div class="them">${r.them || '<span class="empty">–</span>'}<div class="who">${ago(Math.max(0, D.generated - r.m.ts))} ago · ${esc(r.m.ip)}</div></div>
+        <div class="us">${r.us || '<span class="empty">watching</span>'}</div></li>`).join("")
+      : `<li><div class="empty">No moves yet. Shield plays as soon as a client crosses the watch line or an operator challenges it.</div><div></div></li>`;
+  }
+
+  function tuning(force) {
+    if (draft && !force) return;   // don't clobber edits in progress on the minute refresh
+    const p = D.policy || {}, thr = { ...DEFAULT_THR, ...(p.thresholds || {}) };
+    draft = null;
+    document.getElementById("tune-thr").innerHTML = ["watch", "tarpit", "block"].map(k => `
+      <label data-k="thr.${k}">${k}<output>${(+thr[k]).toFixed(2)}</output>
+        <input type="range" min="0.05" max="1" step="0.05" value="${thr[k]}" aria-label="${k} threshold"></label>`).join("");
+    document.getElementById("tune-w").innerHTML = (D.detectors || []).map(d => {
+      const sug = d.suggested != null ? ` <span style="color:var(--glow-lime)">→ ${(+d.suggested).toFixed(1)}×</span>` : "";
+      const tip = `${d.confirmed || 0} confirmed, ${d.fp || 0} false positive${d.precision != null ? ", " + Math.round(d.precision * 100) + "% precision" : ""}`;
+      return `<label data-k="w.${esc(d.name)}" title="${tip}">${esc(d.name)}<output>${(+(d.weight ?? 1)).toFixed(1)}×${sug}</output>
+        <input type="range" min="0" max="2" step="0.1" value="${d.weight ?? 1}" aria-label="${esc(d.name)} weight"></label>`;
+    }).join("");
+    const p0 = D.policy || {}, nSug = (D.detectors || []).filter(d => d.suggested != null).length;
+    const at = document.getElementById("at-on"); if (at) at.checked = !!p0.autotune;
+    const note = document.getElementById("at-note");
+    if (note) note.textContent = p0.autotune ? `auto-tuning on · ${nSug} suggestion${nSug === 1 ? "" : "s"} pending`
+      : nSug ? `${nSug} suggestion${nSug === 1 ? "" : "s"} ready` : "learning — need more confirmed catches";
+    document.querySelectorAll("#tune-thr input, #tune-w input").forEach(inp => inp.oninput = () => {
+      const lab = inp.closest("label"), [kind, name] = lab.dataset.k.split(".");
+      draft = draft || { thresholds: {}, weights: {} };
+      (kind === "thr" ? draft.thresholds : draft.weights)[name] = +inp.value;
+      lab.querySelector("output").textContent = kind === "thr" ? (+inp.value).toFixed(2) : `${(+inp.value).toFixed(1)}×`;
+      lab.classList.add("changed"); setErr("tune-err", "");
+    });
+  }
+
+  const EC_DEFAULT = { auth_rate: 100, retry_after: 9, geo: [], asn: [] };
+  let ecDraft = false;
+  function edgeControls(force) {
+    if (ecDraft && !force) return;
+    ecDraft = false;
+    const p = D.policy || {}, ec = { ...EC_DEFAULT, ...(p.edge_controls || {}) };
+    document.querySelectorAll("[data-ec]").forEach(lab => {
+      const k = lab.dataset.ec, inp = lab.querySelector("input");
+      inp.value = ec[k]; lab.querySelector("output").textContent = ec[k]; lab.classList.remove("changed");
+    });
+    document.getElementById("ec-ja4").checked = !!p.ja4;
+    document.getElementById("ec-geo").value = (ec.geo || []).join(", ");
+    document.getElementById("ec-asn").value = (ec.asn || []).join(", ");
+    raHint(ec.retry_after);
+    setErr("ec-err", "");
+  }
+  function raHint(v) {
+    const h = document.getElementById("ra-hint");
+    h.className = "hint" + (v > 9 ? " warn" : "");
+    h.textContent = v > 9 ? `Above 9s, ARTEX's throttle stops honoring it and the 429 goes straight to its model.`
+      : `At ${v}s or less, ARTEX's own throttle pauses every worker on this host.`;
+  }
+  function parseList(s, re) { return s.split(/[\s,]+/).map(x => x.trim()).filter(Boolean).filter(x => re.test(x)); }
+
+  const ALERT_KINDS = [["edge_block", "Agent blocked at the edge"], ["decoy", "Certain detection (decoy, honey token)"],
+                       ["anomaly", "Traffic out of norm"], ["admin", "Someone used this console"],
+                       ["breach", "Breach tripwire: the canary AWS key was used"], ["flood", "Flood mode: a surge started or ended"]];
+  function alertsPanel() {
+    const p = D.policy || {}, on = p.alerts || {}, al = D.alerting || { subscriptions: [], recent: [] };
+    document.getElementById("al-kinds").innerHTML = ALERT_KINDS.map(([k, label]) => `
+      <label class="switch"><input type="checkbox" data-kind="${k}" ${on[k] !== false ? "checked" : ""}><span></span>${label}</label>`).join("");
+    document.querySelectorAll("#al-kinds input").forEach(c => c.onchange = () =>
+      api({ action: "set_policy", policy: { alerts: { [c.dataset.kind]: c.checked } } }));
+    document.getElementById("al-subs").innerHTML = al.subscriptions.length
+      ? al.subscriptions.map(s => `<div><span>${esc(s.protocol)} · ${esc(s.endpoint)}</span>
+          <span class="${s.status === "pending" ? "pend" : "ok"}">${s.status === "pending" ? "waiting for you to click the confirmation email" : "confirmed"}</span></div>`).join("")
+      : `<div><span>No email subscribed</span><span class="pend">set AlertEmail on the pipeline stack</span></div>`;
+    document.getElementById("al-recent").innerHTML = al.recent.length ? al.recent.slice(0, 8).map(a => `
+      <li><span class="ago">${ago(Math.max(0, D.generated - a.ts))}</span><div><div class="route">${esc(a.subject)}</div>
+        <div class="meta">${esc(a.kind)}${a.sent ? "" : " · not sent (no topic)"}</div></div></li>`).join("")
+      : `<li><span class="ago">–</span><div class="meta">No alerts yet.</div></li>`;
+  }
+
+  function judgePanel() {
+    const jp = { enabled: true, act: "advise", max_per_hour: 30, ...((D.policy || {}).judge || {}) };
+    const J = D.judge || { recent: [], calls_24h: 0, tokens_in_24h: 0, tokens_out_24h: 0 };
+    document.getElementById("jd-on").checked = !!jp.enabled;
+    document.querySelectorAll("#jd-mode button").forEach(b => b.setAttribute("aria-pressed", b.dataset.jm === jp.act));
+    const cap = document.getElementById("jd-cap"); if (document.activeElement !== cap) cap.value = jp.max_per_hour;
+    const cost = J.tokens_in_24h * 4 / 1e6 + J.tokens_out_24h * 20 / 1e6;
+    document.getElementById("jd-stats").textContent =
+      `${J.calls_24h} calls · ${fmt(J.tokens_in_24h)} in / ${fmt(J.tokens_out_24h)} out tokens · ≈ $${cost.toFixed(2)} (24h, list price)`;
+    const rows = (J.recent || []).filter(r => r.answer);
+    document.getElementById("judgments").innerHTML = rows.length
+      ? `<tr><th>When</th><th>Agent</th><th>Verdict</th><th>Techniques</th><th>Move</th><th>Why</th></tr>` + rows.slice(0, 12).map(r => {
+          const a = r.answer;
+          return `<tr><td class="m">${ago(Math.max(0, D.generated - r.ts))}</td>
+            <td class="m">${esc((r.ips || [])[0] || "")}<div class="sig">${esc(who(r.actor))}</div></td>
+            <td><span class="vd ${a.verdict}">${a.verdict.replace("_", " ")} ${(+a.confidence).toFixed(2)}</span>
+              ${a.injection_attempt ? '<div style="margin-top:4px"><span class="inj">tried to steer the judge</span></div>' : ""}</td>
+            <td><div class="tq">${(a.techniques || []).map(t => `<span>${esc(t.replaceAll("_", " "))}</span>`).join("")}</div></td>
+            <td class="m">${esc(a.recommended_move)}${(r.applied || []).length ? `<div class="sig">${esc(r.applied.join(", "))}</div>` : `<div class="sig">${r.mode === "act" ? "" : "advised"}</div>`}</td>
+            <td class="why">${esc(a.rationale)}</td></tr>`; }).join("")
+      : `<tr><td class="sig">No judgments yet. The judge runs every 2 minutes on agents near the line.</td></tr>`;
+  }
+  function cellPanel() {
+    const C = D.cell || { agents: [], requests: 0, minutes: 0 };
+    document.getElementById("ov-cell-n").textContent = C.agents.filter(a => a.status === "in").length;
+    document.getElementById("ov-cell-req").textContent = fmt(C.requests);
+    const p = D.policy || {}, sp = document.getElementById("state-pill");
+    sp.textContent = `${p.mode === "enforce" ? "Enforce" : "Observe"} · edge: ${{ cell: "cell", block: "certain", tarpit: "suspects", lockdown: "LOCKDOWN" }[p.edge] || p.edge || "?"}`;
+    sp.className = "pill state " + (p.mode === "enforce" ? "on" : "off") + (p.edge === "lockdown" ? " alarm" : "");
+    document.getElementById("cell-n").textContent = C.agents.filter(a => a.status === "in").length;
+    document.getElementById("cell-req").textContent = fmt(C.requests);
+    document.getElementById("cell-tok").textContent = fmt(C.tokens || 0);
+    document.getElementById("cell-cost").textContent = C.cost ? `≈ $${(+C.cost).toFixed(2)}` : "";
+    document.getElementById("cell-min").textContent = fmt(Math.round(C.minutes));
+    document.getElementById("cell-table").innerHTML = C.agents.length
+      ? `<tr><th>Agent</th><th>Status</th><th>Turns</th><th>Tokens fed</th><th>≈ their cost</th><th>Time inside</th><th>Deepest route</th><th>What it fell for</th></tr>` +
+        C.agents.slice(0, 15).map(a => `<tr>
+          <td class="m">${esc(a.ip || "")}<div class="sig">${esc(who(a.actor))}</div></td>
+          <td><span class="cst ${a.status}">${a.status === "in" ? "in the cell" : "went quiet " + ago(Math.max(0, D.generated - a.last))}</span></td>
+          <td class="m">${fmt(a.requests)}</td><td class="m">${fmt(a.tokens || 0)}</td>
+          <td class="m">${a.cost ? "$" + (+a.cost).toFixed(2) : "–"}</td>
+          <td class="m">${ago(a.seconds)}</td><td class="m">${a.depth} levels</td>
+          <td><div class="tq">${(a.marks || []).map(m => `<span>${esc((MOVE_TEXT[m] || [m])[0].toLowerCase())}</span>`).join("")}</div></td></tr>`).join("")
+      : `<tr><td class="sig">Nobody in the cell. Agents land here once they are confirmed (score at the block line).</td></tr>`;
+  }
+  function who(key) { return key.startsWith("spoof|") ? "fake browser, keyed by TLS" : uaOf(key); }
+
+  // ---------- budget ----------
+  const GROUP_SERIES = { firewall: 0, cdn: 2, compute: 3, other: 1 };   // validated data series only
+  const usd = v => v == null ? "–" : "$" + (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : (+v).toFixed(2));
+  const ymd = s => s && s.length === 8 ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : s || "";
+  function budgetPanel() {
+    const B = D.budget, V = B && B.verified;   // older snapshots carry no budget object
+    set("b-mtd", B ? usd(B.mtd) : "–");
+    set("b-mtd-d", B ? `${B.month} · ${B.hours} hours estimated` : "no estimate yet: the scorer prices usage once an hour");
+    const pr = document.getElementById("b-proj");
+    pr.textContent = B ? usd(B.projection) : "–";
+    pr.className = "v" + (B && B.projection > B.limit ? " hot" : "");
+    set("b-proj-d", B ? `${B.projection > B.limit ? "over" : "within"} the ${usd(B.limit)} budget · typical about $${B.typical}` : "");
+    set("b-ver", V ? usd(V.actual) : "–");
+    // the checked period ends before the check day (Cost Explorer's End is exclusive)
+    const until = V && V.period ? new Date(Date.parse(ymd(V.period[1]) + "T00:00:00Z") - 86400000).toISOString().slice(0, 10) : "";
+    set("b-ver-d", V ? `${V.scope} · ${ymd(V.period[0])} to ${until} · checked ${V.date}` : "not checked yet: once a day, after 06:00 UTC");
+    set("b-acc", V && V.accuracy != null ? `${Math.round(V.accuracy)}%` : "–");
+    set("b-acc-d", V ? `estimate ${usd(V.estimate)} for the same days` : "estimate vs the bill, same days");
+    budgetChart(); budgetServices(); budgetTable();
+  }
+  function budgetStacks(B) {
+    const groupOf = {}; (B.services || []).forEach(x => groupOf[x.key] = x.group);
+    return (B.days || []).map(d => {
+      const g = {}; (B.groups || []).forEach(x => g[x.key] = 0);
+      Object.entries(d.by || {}).forEach(([k, v]) => g[groupOf[k] || "other"] += v);
+      return { date: d.date, day: +d.date.slice(8), g, total: d.total };
+    });
+  }
+  function budgetChart() {
+    const svg = document.getElementById("bud-daily"), B = D.budget, leg = document.getElementById("bud-legend");
+    const tbl = document.getElementById("bud-tbl"), tip = document.getElementById("btip");
+    if (!B) {
+      svg.setAttribute("viewBox", "0 0 800 260");
+      svg.innerHTML = `<text x="16" y="40" fill="${css("--ink-3")}" style="font:13px var(--sans)">No cost data yet. The scorer prices the engine's usage once an hour.</text>`;
+      svg.setAttribute("aria-label", "No cost data yet"); leg.innerHTML = ""; tbl.innerHTML = ""; return;
+    }
+    const W = svg.clientWidth || 800, H = 260, P = { l: 52, r: 14, t: 12, b: 26 }, G = B.groups || [];
+    const n = B.days_in_month || 30, st = budgetStacks(B);
+    const max = Math.max(B.pace_per_day * 1.3, ...st.map(x => x.total), 0.01) * 1.1;
+    const bw = (W - P.l - P.r) / n, x = i => P.l + i * bw, y = v => P.t + (1 - v / max) * (H - P.t - P.b);
+    let g = `<g class="axis">`;
+    for (let i = 0; i <= 4; i++) {
+      const v = max * i / 4;
+      g += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${P.l - 8}" y="${y(v) + 4}" text-anchor="end">$${v.toFixed(v < 10 ? 2 : 0)}</text>`;
+    }
+    for (let d = 1; d <= n; d += Math.ceil(n / 8)) g += `<text x="${x(d - 1) + bw / 2}" y="${H - 6}" text-anchor="middle">${d}</text>`;
+    g += `</g>`;
+    st.forEach(s => {
+      let base = 0;
+      G.forEach(gr => {
+        const v = s.g[gr.key]; if (!v) return;
+        g += `<rect class="bar" x="${x(s.day - 1) + 1}" y="${y(base + v)}" width="${Math.max(1, bw - 2)}" height="${Math.max(0.5, y(base) - y(base + v))}" fill="${SERIES[GROUP_SERIES[gr.key] ?? 1]}" rx="1.5"/>`;
+        base += v;
+      });
+    });
+    const py = y(B.pace_per_day);
+    g += `<line x1="${P.l}" x2="${W - P.r}" y1="${py}" y2="${py}" stroke="${css("--ink-2")}" stroke-dasharray="5 5" stroke-width="1.2"/>
+      <text x="${W - P.r - 4}" y="${py - 6}" text-anchor="end" class="thr-l" fill="${css("--ink-2")}">budget pace ${usd(B.pace_per_day)}/day (${usd(B.limit)}/month)</text>`;
+    g += `<rect id="bhit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/>`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = g;
+    svg.setAttribute("aria-label", `Daily estimated cost for ${B.month}: ${usd(B.mtd)} so far, projected ${usd(B.projection)} against a ${usd(B.limit)} budget. The Table button lists every day.`);
+    leg.innerHTML = G.map(gr => `<span><i class="sw" style="background:${SERIES[GROUP_SERIES[gr.key] ?? 1]}"></i>${esc(gr.name)}</span>`).join("")
+      + `<span><i class="sw" style="background:none;border-top:2px dashed ${css("--ink-2")};border-radius:0;height:0"></i>Budget pace</span>`;
+    const card = svg.closest(".card"), byDay = Object.fromEntries(st.map(s => [s.day, s]));
+    svg.querySelector("#bhit").onmousemove = ev => {
+      const b = svg.getBoundingClientRect(), mx = (ev.clientX - b.left) * W / b.width;
+      const s = byDay[Math.floor((mx - P.l) / bw) + 1];
+      if (!s) { tip.style.opacity = 0; return; }
+      tip.innerHTML = `<div class="t">${esc(s.date)}</div>` + G.filter(gr => s.g[gr.key]).map(gr =>
+        `<div class="r"><span><i class="sw" style="background:${SERIES[GROUP_SERIES[gr.key] ?? 1]}"></i> ${esc(gr.name)}</span><span>${usd(s.g[gr.key])}</span></div>`).join("")
+        + `<div class="r"><span>Total</span><span>${usd(s.total)}</span></div>`;
+      const cb = card.getBoundingClientRect();
+      let left = ev.clientX - cb.left + 14; if (left + 220 > cb.width) left -= 248;
+      tip.style.left = left + "px"; tip.style.top = (ev.clientY - cb.top - 20) + "px"; tip.style.opacity = 1;
+    };
+    svg.querySelector("#bhit").onmouseleave = () => { tip.style.opacity = 0; };
+    tbl.innerHTML = `<tr><th>Day</th>${G.map(gr => `<th>${esc(gr.name)}</th>`).join("")}<th>Total</th></tr>` +
+      st.map(s => `<tr><td class="m">${esc(s.date)}</td>${G.map(gr => `<td class="num">${usd(s.g[gr.key])}</td>`).join("")}<td class="num">${usd(s.total)}</td></tr>`).join("");
+  }
+  function budgetServices() {
+    const B = D.budget, el = document.getElementById("bud-svc");
+    if (!B) { el.innerHTML = `<p class="sig">No estimate yet.</p>`; return; }
+    const rows = (B.services || []).filter(x => x.estimate > 0), max = Math.max(0.01, ...rows.map(x => x.estimate));
+    el.innerHTML = rows.map(x => `<div class="row"><div><div class="nm">${esc(x.name)}</div>
+        <div class="bars" title="${esc(x.name)}: ${usd(x.estimate)} estimated this month${x.note ? " (" + esc(x.note) + ")" : ""}">
+          <b style="width:${x.estimate / max * 100}%;background:${SERIES[GROUP_SERIES[x.group] ?? 1]}"></b></div></div>
+        <span class="p">${usd(x.estimate)}</span></div>`).join("");
+  }
+  function budgetTable() {
+    const B = D.budget, V = B && B.verified, el = document.getElementById("bud-ver");
+    const note = document.getElementById("bud-note"), sub = document.getElementById("bud-ver-sub");
+    if (!B) { el.innerHTML = `<tr><td class="sig">No estimate yet. The first hourly sample builds this page.</td></tr>`; note.textContent = ""; return; }
+    sub.textContent = V
+      ? `Checked ${V.date} against Cost Explorer, ${V.scope}: ${V.scope === "exact" ? "only resources tagged undertow=engine" : "these services across the whole account, so other workloads count too"}.`
+      : "Checked once a day against Cost Explorer, for the same days. Not checked yet.";
+    el.innerHTML = `<tr><th>Service</th><th>Estimate, month to date</th><th>Estimate, checked days</th><th>The bill, checked days</th><th>Bill / estimate</th><th></th></tr>` +
+      (B.services || []).map(x => `<tr><td>${esc(x.name)}</td><td class="num">${usd(x.estimate)}</td>
+        <td class="num">${x.verified_estimate == null ? "–" : usd(x.verified_estimate)}</td><td class="num">${x.actual == null ? "–" : usd(x.actual)}</td>
+        <td class="num">${x.ratio == null ? "–" : (+x.ratio).toFixed(2) + "×"}</td><td class="sig">${esc(x.note || "")}</td></tr>`).join("") +
+      (V && V.other ? `<tr><td>Other services on the bill</td><td class="num">–</td><td class="num">–</td><td class="num">${usd(V.other)}</td><td class="num">–</td><td class="sig">not modeled</td></tr>` : "");
+    note.textContent = B.note || "";
+  }
+  function demoBudget(now) {
+    const d = new Date(now * 1000), Y = d.getUTCFullYear(), M = d.getUTCMonth(), today = d.getUTCDate();
+    const dim = new Date(Date.UTC(Y, M + 1, 0)).getUTCDate(), r = rng(11 + today);
+    const S = [["waf", "AWS WAF", "firewall", 1.52], ["cloudfront", "CloudFront", "cdn", 0.03], ["lambda", "Lambda", "compute", 0.07],
+      ["dynamodb", "DynamoDB", "compute", 0.05], ["cloudwatch", "CloudWatch", "compute", 0.04], ["apigateway", "API Gateway", "compute", 0.002],
+      ["s3", "S3", "compute", 0.02], ["vpc", "VPC endpoint", "other", 0.24], ["secrets", "Secrets Manager", "other", 0.053], ["model", "LLM calls", "other", 0.06]];
+    const days = [], mtd = {};
+    for (let i = 1; i <= today; i++) {
+      const by = {}, part = i === today ? (d.getUTCHours() + 1) / 24 : 1;
+      S.forEach(([k, , , v]) => { by[k] = +(v * part * (0.9 + r() * 0.2) * (i === Math.min(9, today) && (k === "waf" || k === "cloudfront") ? 1.8 : 1)).toFixed(4); mtd[k] = (mtd[k] || 0) + by[k]; });
+      days.push({ date: `${Y}-${String(M + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`, by, total: Object.values(by).reduce((a, b) => a + b, 0) });
+    }
+    const total = Object.values(mtd).reduce((a, b) => a + b, 0), rate = days[days.length - 1].total / ((d.getUTCHours() + 1) / 24);
+    const ratio = { waf: 1.03, cloudfront: 0.96, lambda: 1.9, dynamodb: 1.4, cloudwatch: 2.2, apigateway: 1.0, s3: 1.1, vpc: 1.0, secrets: 1.0 };
+    const services = S.map(([k, name, group]) => {
+      const est = mtd[k] * (today - 1) / today;
+      return { key: k, name, group, estimate: +mtd[k].toFixed(4), verified_estimate: ratio[k] ? +est.toFixed(4) : null,
+               actual: ratio[k] ? +(est * ratio[k]).toFixed(4) : null, ratio: ratio[k] || null,
+               note: { model: "estimate only: billed under the model's name, untagged", cloudfront: "after the always-free 10M requests and 1 TB" }[k] || "" };
+    }).sort((a, b) => b.estimate - a.estimate);
+    const act = services.reduce((a, x) => a + (x.actual || 0), 0), est = services.reduce((a, x) => a + (x.actual != null ? x.verified_estimate : 0), 0);
+    const p = (n) => `${Y}${String(M + 1).padStart(2, "0")}${String(n).padStart(2, "0")}`;
+    return { month: `${Y}-${String(M + 1).padStart(2, "0")}`, days_in_month: dim, limit: 100, typical: 50, pace_per_day: 100 / dim,
+      mtd: total, projection: total + rate * (dim - today + 1 - (d.getUTCHours() + 1) / 24), hours: (today - 1) * 24 + d.getUTCHours() + 1, days, services,
+      groups: [{ key: "firewall", name: "Firewall (WAF)" }, { key: "cdn", name: "CloudFront" }, { key: "compute", name: "Compute, data and logs" }, { key: "other", name: "Endpoint, secrets, LLM, other" }],
+      verified: today > 1 ? { date: days[days.length - 1].date, scope: "account-wide", period: [p(1), p(today)], actual: act, estimate: est,
+        accuracy: Math.max(0, 100 * (1 - Math.abs(est - act) / act)), other: 0 } : null,
+      note: "A typical install costs about $50 a month, mostly the firewall and its managed rules." };
+  }
+
+  function floodPanel() {
+    // older snapshots (before flood mode) carry no flood object: show it calm
+    const F = D.flood || { enabled: true, active: false, rpm: 0, baseline: 0, threshold: 0, flagged: 0, pattern: null, events: [] };
+    const st = document.getElementById("fl-state"), rule = document.getElementById("fl-rule");
+    st.textContent = !F.enabled ? "off" : F.active ? "surge" : "calm";
+    st.className = F.active ? "alarm" : "";
+    set("fl-state-d", !F.enabled ? "flood mode is switched off" : F.active && F.since ? `since ${ago(Math.max(0, D.generated - F.since))} ago` : "no surge");
+    set("fl-rpm", fmt(F.rpm || 0));
+    set("fl-rpm-d", `requests last minute · norm ${fmt(Math.round(F.baseline || 0))} · surge at ${F.threshold ? fmt(F.threshold) : "–"}`);
+    set("fl-ips", fmt(F.flagged || 0));
+    const p = F.pattern, FIELD = { user_agent: "user agent", ja4: "JA4", path_prefix: "path" };
+    rule.textContent = !p ? "none" : p.action === "none" ? "held back" : p.action;
+    rule.className = p && p.action === "block" ? "alarm" : "";
+    rule.title = p ? p.why || "" : "";
+    set("fl-rule-d", !p ? "no pattern rule" : `${FIELD[p.field] || p.field} ${String(p.value).slice(0, 60)}` +
+      (p.exp ? ` · ${ago(Math.max(0, p.exp - D.generated))} left` : "") + ` · ${p.by} · ` +
+      (p.action === "none" ? "the model saw no safe rule" : p.applied ? "live at the edge" : "not applied (observe or advise)"));
+    document.getElementById("fl-events").innerHTML = (F.events || []).length ? F.events.slice(0, 5).map(e => `
+      <li><span class="ago">${ago(Math.max(0, D.generated - e.ts))}</span><div><div class="route">${esc((MOVE_TEXT[e.move] || [e.move, e.move])[e.move === "flood_surge" ? 0 : 1])}</div>
+        <div class="meta">${esc(e.detail || "")}</div></div></li>`).join("")
+      : `<li><span class="ago">–</span><div class="meta">No floods yet. A surge is ${(F.settings || {}).multiplier || 5} times the usual minute and at least ${fmt((F.settings || {}).floor_rpm || 600)} requests.</div></li>`;
+  }
+
+  function audit() {
+    document.getElementById("audit").innerHTML = (D.audit || []).length ? D.audit.slice(0, 20).map(a => `
+      <li><span class="ago">${ago(Math.max(0, D.generated - a.ts))}</span>
+        <div><div class="route">${esc(a.action)}</div><div class="meta">${esc(a.who || "")} · ${esc((a.body || "").slice(0, 120))}</div></div></li>`).join("")
+      : `<li><span class="ago">–</span><div class="meta">No operator actions yet.</div></li>`;
+    const now = Date.now() / 1000;
+    const rows = [...(D.allows || []).map(a => ["allowed", a.cidr, a.exp, a.reason || ""]),
+                  ...(D.challenges || []).map(c => ["challenged", c.ip, c.exp, ""])];
+    document.getElementById("holds").innerHTML = rows.length
+      ? `<tr><th>What</th><th>Address</th><th>Expires</th><th></th></tr>` + rows.map(([w, a, e, r]) => `
+        <tr><td><span class="vt ${w === "allowed" ? "tarpit" : "block"}" style="${w === "allowed" ? "color:#e9ffc2;border-color:rgba(118,160,22,.6);background:rgba(118,160,22,.15)" : ""}">${w}</span></td>
+        <td class="m">${esc(a)}</td><td class="m" data-exp="${e}">${ago(Math.max(0, e - now))}</td>
+        <td>${w === "challenged" ? `<button class="ub small admin-only" data-release="${esc(a)}">Release</button>` : `<span class="sig">${esc(r)}</span>`}</td></tr>`).join("")
+      : `<tr><td class="sig">No exceptions in force.</td></tr>`;
+    document.querySelectorAll("#holds [data-release]").forEach(b => b.onclick = () => api({ action: "release", targets: [b.dataset.release] }));
+  }
+
+  function toast(html) {
+    const t = document.getElementById("toast"); t.innerHTML = html; t.classList.add("on");
+    clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), 4200);
+  }
+
+  function renderAll(freshFeed) {
+    kpis(); controls(); ladder(); norm(); watchlist(); board(); tuning(); edgeControls(); alertsPanel(); judgePanel(); cellPanel(); floodPanel(); budgetPanel(); verifiedPanel(); reputationPanel(); campaignsPanel(); appsPanel(); appFilter();
+    scoreChart(); feed(freshFeed); blocks(); detectors(); strips(); audit();
+    adminState();   // last: re-renders above rebuild inputs that viewers must not change
+  }
+
+  async function refresh(freshFeed) {
+    const next = await load(hours);
+    if (D && !D.live && !next.live && D.hours === next.hours) return renderAll(freshFeed);  // keep demo edits
+    D = next;
+    renderAll(freshFeed);
+  }
+
+  document.querySelectorAll(".seg.time button").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".seg.time button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    hours = +b.dataset.h; D = null; refresh(false);
+  });
+  document.querySelectorAll("#mode-ctl button").forEach(b => b.onclick = () => {
+    if (b.getAttribute("aria-pressed") === "true") return toast(`Already in <code>${esc(b.dataset.mode)}</code>.`);
+    api({ action: "set_policy", policy: { mode: b.dataset.mode } });
+  });
+  document.querySelectorAll("#edge-ctl button").forEach(b => b.onclick = () => {
+    if (b.getAttribute("aria-pressed") === "true") return toast(`Edge already set to <code>${esc(b.dataset.edge)}</code>.`);
+    api({ action: "set_policy", policy: { edge: b.dataset.edge } });
+  });
+  VIEWS.forEach(v => { const t = document.getElementById("tab-" + v); if (t) t.onclick = () => showTab(v); });
+  document.querySelectorAll(".subtabs button").forEach(b => b.onclick = () => showSub(b.dataset.sub));
+  document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => showTab(b.dataset.goto));
+  { const [v, sub] = location.hash.slice(1).split("/"); if (v) showTab(v, sub); }
+
+  const HELP = {
+    "h-stream": "Live view of requests crossing the edge. Agents get pulled under; real users pass straight through.",
+    "h-ladder": "How many actors sit at each level right now: Allow (trusted), Watch (suspicious), Tarpit (slowed), Block (stopped at the edge).",
+    "h-norm": "Traffic in the last 5 minutes vs the previous 24 hours. A spike in refusals or API-map reads flags an attack in progress.",
+    "h-ovcell": "How many confirmed agents are trapped in the fake app right now, and how many of their requests it has absorbed.",
+    "h-bud-daily": "Estimated cost per day this month, stacked by service group. The dashed line is the budget's daily pace: $100 a month spread evenly. Hover a day for its numbers; Table lists them all.",
+    "h-bud-svc": "This month's estimated cost by service, from the engine's own usage at list prices. The firewall is most of it.",
+    "h-bud-ver": "Once a day the estimate is checked against the real bill from Cost Explorer, by service, for the same days. Exact: only resources tagged undertow=engine. Account-wide: the same services across the whole account, so other workloads count too.",
+    "h-flood": "Bot floods spread over many IPs. During a surge (5 times the usual minute and at least 600 requests), IPs at 120+ requests a minute are blocked at the edge for 15 minutes. If the flood is spread wider than that, one edge rule is added on what it shares. The LLM only picks that rule from observed values; it never sees a live request. Defaults are starting guesses.",
+    "h-flood-man": "What a bot flood is, the flood layers, the managed rules that block or only count, what flood mode does, how to test it and what it costs.",
+    "h-cost-man": "What the install costs, the $100 budget alarm, how the Budget page estimates hourly and checks the bill daily, and what exact and account-wide mean.",
+    "h-blocks": "Top flagged agents, highest score first. Click a row to replay it. Mark one Attacker (hold at block) or Person (clear and allow its IPs a day); both teach auto-tune.",
+    "h-watch": "Actors near the line but not yet confirmed. Challenge one to turn on deception for it, with no delay to real users.",
+    "h-score": "Each flagged agent's score over time. It only climbs as evidence stacks up.",
+    "h-det": "Each detector's confirmed catches vs false positives, and its precision — the data auto-tuning learns from.",
+    "h-judge": "The Judge (a large language model) reviews borderline agents every 2 minutes, reading their behavior as untrusted data. Advise records; Act lets its verdict count.",
+    "h-phase": "The stage each agent reached: map, probe, enumerate, identity, act, read.",
+    "h-cell": "The padded cell: confirmed agents get a fake copy of the app. Requests absorbed, time wasted, and attacker tokens burned.",
+    "h-reputation": "Where a client's IP comes from — datacenter, Tor, or a threat feed — as a secondary signal. It never blocks alone, because agents rotate IPs; it only sharpens a verdict once an attack signal is present, and verified agents are never scored on it.",
+    "h-board": "Their move, our counter — newest first. They play one route at a time; we answer each with the move that ends it.",
+    "h-decoy": "Decoy and honey-token hits. No legitimate user touches these, so each one is a certain detection.",
+    "h-enf": "Observe scores but never blocks. Enforce applies the edge decision below, which decides what happens to confirmed agents.",
+    "h-edge": "Live edge knobs applied in seconds: auth and flood rate limits, Retry-After, country and network blocks, challenge sensitive requests.",
+    "h-tune": "Where each verdict starts, and how much each detector counts. The green arrow is the weight auto-tuning suggests from confirmed catches.",
+    "h-alerts": "Which events email you, and the recent ones sent.",
+    "h-camp": "Agents that rotate IPs look like strangers. Undertow links them by the tool they run (TLS and header fingerprint) and the routes they walk. Once 3 or more networks are linked, their requests are judged together, so 50 IPs making 3 requests each still read as one ID walk. Real browsers are never linked.",
+    "h-verified":"Clients that prove who they are: real search crawlers (checked by reverse DNS) and AI agents that sign their requests with a key you trust. Their automated style is not held against them; attacks still are.",
+    "h-apps": "One engine can stand in front of many apps. Each app's traffic is told apart by its host. An app can have its own tarpit and block lines and its own origin for the padded cell to copy, so an agent caught on the billing app lands in a fake billing app.",
+    "h-dest":"Where alerts go besides email: Slack, Teams, a Splunk HTTP Event Collector, or any webhook. Each alert is an OCSF Detection Finding, so a SIEM can parse it without custom rules. Webhook calls carry an HMAC signature you can check with the secret shown when you add it.",
+    "h-keys":"Client keys mark a partner integration's traffic as verified. Verdict keys let your own gateway or proxy ask Undertow what to do with a request. Only a hash is stored, so a lost key is revoked and replaced, never recovered.",
+    "h-holds": "Operator exceptions in force: allowed IPs and active challenges. Each expires on its own.",
+    "h-audit": "Every operator action — who, what and when.",
+    "h-invite": "Invite a teammate. The system emails a one-time password; they set their own at first sign-in.",
+    "h-users": "Everyone with access. Change roles, reset passwords, reset MFA, disable or remove.",
+    "h-wp": "How Undertow detects, slows, deceives and drains AI attack agents.",
+    "h-diag": "The components and how a request flows through them.",
+    "h-man": "How to use each tab and control.",
+  };
+  let _pop = null;
+  function hidePop() { if (_pop) { _pop.remove(); _pop = null; } }
+  function showPop(anchor, txt) {
+    hidePop();
+    _pop = document.createElement("div"); _pop.className = "qpop"; _pop.textContent = txt;
+    document.body.appendChild(_pop);
+    const r = anchor.getBoundingClientRect();
+    _pop.style.top = (r.bottom + 6) + "px";
+    _pop.style.left = Math.max(8, Math.min(r.left, innerWidth - _pop.offsetWidth - 8)) + "px";
+    setTimeout(() => document.addEventListener("click", hidePop, { once: true }), 0);
+  }
+  function installHelp() {
+    document.querySelectorAll(".card h2[id]").forEach(h => {
+      const txt = HELP[h.id]; if (!txt || h.querySelector(".q")) return;
+      const q = document.createElement("span");
+      q.className = "q"; q.textContent = "?"; q.title = txt; q.tabIndex = 0;
+      q.setAttribute("role", "button"); q.setAttribute("aria-label", "What is this? " + txt);
+      q.onclick = e => { e.stopPropagation(); showPop(q, txt); };
+      q.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showPop(q, txt); } };
+      h.appendChild(q);
+    });
+  }
+  installHelp();
+  document.getElementById("signout").onclick = async () => {
+    if (!LIVE) return toast("Demo mode: nothing to sign out of.");
+    try { if (AUTH && AUTH.refresh) await cognito("RevokeToken", { Token: AUTH.refresh }); } catch (_) { /* still sign out locally */ }
+    try { sessionStorage.removeItem("undertow-auth"); } catch (_) {}
+    location.replace("login.html?signedout=1");
+  };
+  document.getElementById("invite").onsubmit = e => {
+    e.preventDefault();
+    const email = document.getElementById("inv-email").value.trim().toLowerCase(), role = document.getElementById("inv-role").value;
+    if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(email)) return setErr("inv-err", "Enter an email address, like name@company.com.");
+    userOp({ op: "invite", email, role }).then(ok => { if (ok) document.getElementById("inv-email").value = ""; });
+  };
+  document.getElementById("inv-email").oninput = () => setErr("inv-err", "");
+  document.getElementById("manual").onsubmit = e => {
+    e.preventDefault();
+    const ip = document.getElementById("manual-ip").value.trim(), act = document.getElementById("manual-act").value;
+    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && !/^[0-9a-f:]+$/i.test(ip)) return setErr("manual-err", "Enter one IP address, like 203.0.113.7.");
+    setErr("manual-err", "");
+    api({ action: act, targets: [ip], hours: act === "block" || act === "unblock" ? 24 : 1, reason: "dashboard manual" })
+      .then(ok => { if (ok) document.getElementById("manual-ip").value = ""; });
+  };
+  document.getElementById("manual-ip").oninput = () => setErr("manual-err", "");
+  document.getElementById("board-filter").onchange = () => board();
+  document.querySelectorAll("[data-ec] input").forEach(inp => inp.oninput = () => {
+    const lab = inp.closest("label"); lab.querySelector("output").textContent = inp.value;
+    lab.classList.add("changed"); ecDraft = true; setErr("ec-err", "");
+    if (lab.dataset.ec === "retry_after") raHint(+inp.value);
+  });
+  ["ec-geo", "ec-asn", "ec-ja4"].forEach(id => document.getElementById(id).addEventListener("input", () => { ecDraft = true; setErr("ec-err", ""); }));
+  document.getElementById("ec-reset").onclick = () => edgeControls(true);
+  document.getElementById("ec-apply").onclick = () => {
+    const geoRaw = document.getElementById("ec-geo").value, asnRaw = document.getElementById("ec-asn").value;
+    const geo = parseList(geoRaw.toUpperCase(), /^[A-Z]{2}$/), asn = parseList(asnRaw, /^\d+$/).map(Number);
+    if (geo.length !== geoRaw.split(/[\s,]+/).filter(Boolean).length) return setErr("ec-err", "Countries are 2-letter ISO codes, like KP or IR.");
+    if (asn.length !== asnRaw.split(/[\s,]+/).filter(Boolean).length) return setErr("ec-err", "Networks are ASN numbers, like 64512.");
+    const val = k => +document.querySelector(`[data-ec="${k}"] input`).value;
+    api({ action: "set_policy", policy: {
+      edge_controls: { auth_rate: val("auth_rate"), retry_after: val("retry_after"), geo, asn },
+      ja4: document.getElementById("ec-ja4").checked } }).then(ok => { if (ok) { ecDraft = false; } });
+  };
+  document.getElementById("al-test").onclick = () => api({ action: "test_alert" });
+  document.getElementById("jd-on").onchange = e => api({ action: "set_policy", policy: { judge: { enabled: e.target.checked } } });
+  document.querySelectorAll("#jd-mode button").forEach(b => b.onclick = () => {
+    if (b.getAttribute("aria-pressed") === "true") return;
+    api({ action: "set_policy", policy: { judge: { act: b.dataset.jm } } });
+  });
+  document.getElementById("jd-cap").onchange = e => {
+    const v = +e.target.value;
+    if (!Number.isInteger(v) || v < 0 || v > 500) return setErr("jd-err", "Calls per hour is a whole number from 0 to 500.");
+    setErr("jd-err", ""); api({ action: "set_policy", policy: { judge: { max_per_hour: v } } });
+  };
+  document.getElementById("at-on").onchange = e => api({ action: "set_policy", policy: { autotune: e.target.checked } });
+  document.getElementById("at-apply").onclick = () => {
+    const w = {}; (D.detectors || []).forEach(d => { if (d.suggested != null) w[d.name] = d.suggested; });
+    if (!Object.keys(w).length) return setErr("tune-err", "No suggestions yet — need more confirmed catches.");
+    setErr("tune-err", ""); api({ action: "set_policy", policy: { weights: w } }).then(ok => { if (ok) tuning(true); });
+  };
+  document.getElementById("tune-reset").onclick = () => { setErr("tune-err", ""); tuning(true); };
+  document.getElementById("tune-apply").onclick = () => {
+    if (!draft) return setErr("tune-err", "Move a slider first.");
+    const thr = { ...DEFAULT_THR, ...((D.policy || {}).thresholds || {}), ...draft.thresholds };
+    if (!(thr.watch < thr.tarpit && thr.tarpit < thr.block)) return setErr("tune-err", "Keep watch < tarpit < block.");
+    const change = {};
+    if (Object.keys(draft.thresholds).length) change.thresholds = draft.thresholds;
+    if (Object.keys(draft.weights).length) change.weights = draft.weights;
+    api({ action: "set_policy", policy: change }).then(ok => { if (ok) tuning(true); });
+  };
+  document.getElementById("bud-tbl-btn").onclick = e => {
+    const t = document.getElementById("bud-tbl"); t.classList.toggle("hidden");
+    e.target.textContent = t.classList.contains("hidden") ? "Table" : "Chart only";
+  };
+  document.getElementById("score-tbl-btn").onclick = e => {
+    const t = document.getElementById("score-tbl"); t.classList.toggle("hidden");
+    e.target.textContent = t.classList.contains("hidden") ? "Table" : "Chart only";
+  };
+  document.querySelectorAll(".card").forEach(c => c.addEventListener("pointermove", e => {
+    const b = c.getBoundingClientRect();
+    c.style.setProperty("--mx", `${e.clientX - b.left}px`); c.style.setProperty("--my", `${e.clientY - b.top}px`);
+  }));
+  addEventListener("resize", () => { if (D) { scoreChart(); budgetChart(); } });
+  setInterval(() => {
+    const now = Date.now() / 1000;
+    document.querySelectorAll("[data-exp]").forEach(td => td.textContent = ago(Math.max(0, +td.dataset.exp - now)));
+  }, 1000);
+  setInterval(() => { if (D && D.live) refresh(false); }, LIVE_CHECK);
+  setInterval(() => { // a new decoy hit now and then in demo mode
+    if (!D || D.live) return;
+    const a = D.actors.find(x => x.signals.includes("decoy_touch"));
+    if (!a) return;
+    D.decoys.push({ ts: D.generated = Date.now() / 1000, path: "/api/v1/internal/ops/export", ip: a.ips[0], replay: Math.random() < .3 });
+    D.kpis.decoyHits++; feed(true); kpis();
+  }, 11000);
+
+  // ---------- live traffic canvas ----------
+  const cv = document.getElementById("stream"), cx = cv.getContext("2d");
+  let parts = [], Wc = 0, Hc = 0, dpr = 1;
+  function size() { dpr = devicePixelRatio || 1; Wc = cv.clientWidth; Hc = cv.clientHeight; cv.width = Wc * dpr; cv.height = Hc * dpr; cx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  size(); addEventListener("resize", size);
+  const shieldX = () => Wc * 0.62;
+  // kinds: 0 allow, 1 block, 2 decoy, 3 tarpit. Live, the mix follows the snapshot's real counts.
+  function mix() {
+    if (!D || !D.live) return [0.78, 0.09, 0.03, 0.10];
+    const k = D.kpis, req = Math.max(1, k.requests), blk = k.r429 || 0, dec = k.decoyHits || 0;
+    const tar = D.ladder.tarpit ? Math.max(0, req - blk - dec) * D.ladder.tarpit / Math.max(1, D.ladder.allow + D.ladder.tarpit) : 0;
+    return [Math.max(0, req - blk - dec - tar) / req, blk / req, dec / req, tar / req];
+  }
+  function spawn() {
+    const m = mix(), r = Math.random();
+    const kind = r < m[0] ? 0 : r < m[0] + m[1] ? 1 : r < m[0] + m[1] + m[2] ? 2 : 3;
+    parts.push({ x: -6, y: 18 + Math.random() * (Hc - 36), v: 1.6 + Math.random() * 1.6, k: kind, a: 1, vy: 0, hit: false });
+  }
+  function frame() {
+    cx.clearRect(0, 0, Wc, Hc);
+    const sx = shieldX();
+    const grd = cx.createLinearGradient(sx - 24, 0, sx + 24, 0);
+    grd.addColorStop(0, "rgba(200,255,62,0)"); grd.addColorStop(.5, "rgba(200,255,62,.16)"); grd.addColorStop(1, "rgba(200,255,62,0)");
+    cx.fillStyle = grd; cx.fillRect(sx - 24, 0, 48, Hc);
+    cx.strokeStyle = "rgba(200,255,62,.55)"; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(sx, 8); cx.lineTo(sx, Hc - 8); cx.stroke();
+    const pool = cx.createLinearGradient(0, Hc - 40, 0, Hc);
+    pool.addColorStop(0, "rgba(207,94,28,0)"); pool.addColorStop(1, "rgba(207,94,28,.14)");
+    cx.fillStyle = pool; cx.fillRect(sx, Hc - 40, Wc - sx, 40);
+    cx.font = "11px JetBrains Mono, monospace"; cx.fillStyle = "rgba(241,238,230,.4)";
+    cx.fillText("internet", 10, 16); cx.fillText("undertow", sx + 8, 16);
+    if (Wc - sx > 160) cx.fillText("your app", Wc - 70, 16);
+    if (!reduced && Math.random() < 0.55) spawn();
+    for (const p of parts) {
+      if (!p.hit && p.x >= sx - 3 && p.k !== 0) {
+        p.hit = true;
+        if (p.k === 1) { p.v = -p.v * 0.5; }
+        if (p.k === 3) { p.vy = 0.5 + Math.random() * 0.6; }
+        if (p.k === 2) { p.v = 0.15; }
+      }
+      if (p.hit && p.k === 3) { p.v *= 0.965; p.y = Math.min(Hc - 10, p.y + p.vy); p.a -= 0.004; }
+      if (p.hit && p.k === 1) { p.a -= 0.02; }
+      if (p.hit && p.k === 2) { p.a -= 0.012; }
+      p.x += p.v;
+      const col = SERIES[[0, 1, 2, 3][p.k]];
+      cx.globalAlpha = Math.max(0, p.a);
+      cx.fillStyle = col; cx.shadowColor = col; cx.shadowBlur = p.k ? 10 : 4;
+      cx.beginPath(); cx.arc(p.x, p.y, p.k ? 2.6 : 1.8, 0, 7); cx.fill();
+      if (p.hit && p.k === 2) { cx.strokeStyle = col; cx.lineWidth = 1; cx.beginPath(); cx.arc(p.x, p.y, (1 - p.a) * 22, 0, 7); cx.stroke(); }
+    }
+    cx.globalAlpha = 1; cx.shadowBlur = 0;
+    parts = parts.filter(p => p.a > 0 && p.x < Wc + 10 && p.x > -10);
+    if (!reduced) requestAnimationFrame(frame);
+  }
+  if (reduced) { for (let i = 0; i < 120; i++) { spawn(); parts[i].x = Math.random() * Wc; } }
+  frame();
+
+  refresh(false);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in</title>
+<style>
+:root { color-scheme: light dark; --bg: #f6f6f7; --card: #fff; --ink: #121214; --ink-2: #3a3a3f; --ink-3: #6c6c72; --line: #d9d9de; --acc: #2b59c3; --bad: #b3261e; --good: #1e7b34; --emboss: 0 1px 0 rgba(255,255,255,.75); }
+@media (prefers-color-scheme: dark) { :root { --bg: #0a0b0d; --card: #212327; --ink: #ffffff; --ink-2: #eef0f4; --ink-3: #b6b9c0; --line: #44464d; --acc: #9cbcff; --bad: #ff9a90; --good: #8fe0a0; --emboss: 0 1px 2px rgba(0,0,0,.75); } }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font: 15px system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+body { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+main { width: 100%; max-width: 380px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 28px 24px; }
+h1 { font-size: 21px; font-weight: 700; margin: 0 0 6px; color: var(--ink); text-shadow: var(--emboss); letter-spacing: .2px; }
+p.sub { font-size: 14px; color: var(--ink-2); margin: 0 0 18px; line-height: 1.5; text-shadow: var(--emboss); }
+label { display: block; font-size: 13px; font-weight: 500; color: var(--ink); margin: 14px 0 6px; text-shadow: var(--emboss); }
+input { width: 100%; font: 500 15px system-ui, sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+input:focus { outline: 2px solid var(--acc); outline-offset: 0; border-color: var(--acc); }
+input[aria-invalid="true"] { border-color: var(--bad); }
+button.primary { width: 100%; margin-top: 20px; font: 700 15px system-ui, sans-serif; color: #fff; background: var(--acc); border: 0; border-radius: 6px; padding: 12px; cursor: pointer; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+button.primary[disabled] { opacity: .6; cursor: wait; }
+.links { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; font-size: 13px; }
+.links button { background: none; border: 0; padding: 0; color: var(--acc); cursor: pointer; font: inherit; }
+.links button:hover { text-decoration: underline; }
+.err { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 12px; }
+.ok { color: var(--good); font-size: 13px; margin-top: 12px; }
+.rules { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4px; font-size: 12px; color: var(--ink-2); text-shadow: var(--emboss); }
+.rules li::before { content: "○ "; }
+.rules li.met { color: var(--good); }
+.rules li.met::before { content: "● "; }
+.view { display: none; }
+.view.on { display: block; }
+.foot { text-align: center; margin-top: 16px; font-size: 12px; color: var(--ink-2); text-shadow: var(--emboss); }
+.qr { display: grid; place-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px; width: 212px; margin: 4px auto 12px; }
+.qr svg { width: 188px; height: 188px; display: block; }
+.secret { font: 13px ui-monospace, Menlo, monospace; word-break: break-all; text-align: center; letter-spacing: .06em; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <form class="view on" id="v-signin" novalidate>
+      <h1>Sign in</h1>
+      <p class="sub">Use the email your invite was sent to.</p>
+      <label for="si-email">Email</label>
+      <input id="si-email" type="email" autocomplete="username" required>
+      <label for="si-pass">Password</label>
+      <input id="si-pass" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Sign in</button>
+      <div class="links"><button type="button" data-go="forgot">Forgot password?</button></div>
+      <div class="err" role="alert" id="si-err"></div>
+    </form>
+
+    <form class="view" id="v-newpw" novalidate>
+      <h1>Choose your password</h1>
+      <p class="sub">Your invite came with a temporary password. Set your own to finish signing in.</p>
+      <label for="np-pass">New password</label>
+      <input id="np-pass" type="password" autocomplete="new-password" required>
+      <label for="np-pass2">Confirm new password</label>
+      <input id="np-pass2" type="password" autocomplete="new-password" required>
+      <ul class="rules" id="np-rules"></ul>
+      <button class="primary" type="submit">Set password and sign in</button>
+      <div class="err" role="alert" id="np-err"></div>
+    </form>
+
+    <form class="view" id="v-mfa" novalidate>
+      <h1>Authenticator code</h1>
+      <p class="sub">Enter the 6-digit code from your authenticator app.</p>
+      <label for="mf-code">Code</label>
+      <input id="mf-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <button class="primary" type="submit">Verify</button>
+      <div class="links"><button type="button" data-go="signin">Back to sign in</button></div>
+      <div class="err" role="alert" id="mf-err"></div>
+    </form>
+
+    <form class="view" id="v-mfasetup" novalidate>
+      <h1>Set up two-step sign-in</h1>
+      <p class="sub">Administrators need an authenticator app (1Password, Google Authenticator, Authy, Microsoft Authenticator). Scan the code, then enter the 6 digits it shows.</p>
+      <div class="qr" id="ms-qr" aria-label="QR code for your authenticator app"></div>
+      <p class="secret" id="ms-secret"></p>
+      <label for="ms-code">Code from the app</label>
+      <input id="ms-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <button class="primary" type="submit">Turn on and continue</button>
+      <div class="err" role="alert" id="ms-err"></div>
+    </form>
+
+    <form class="view" id="v-forgot" novalidate>
+      <h1>Reset your password</h1>
+      <p class="sub">We'll email you a 6-digit code if the address has an account.</p>
+      <label for="fg-email">Email</label>
+      <input id="fg-email" type="email" autocomplete="username" required>
+      <button class="primary" type="submit">Email me a code</button>
+      <div class="links"><button type="button" data-go="signin">Back to sign in</button><button type="button" data-go="reset">I have a code</button></div>
+      <div class="err" role="alert" id="fg-err"></div>
+    </form>
+
+    <form class="view" id="v-reset" novalidate>
+      <h1>Enter your code</h1>
+      <p class="sub" id="rs-sub">Check your email for the 6-digit code.</p>
+      <label for="rs-email">Email</label>
+      <input id="rs-email" type="email" autocomplete="username" required>
+      <label for="rs-code">Code</label>
+      <input id="rs-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required>
+      <label for="rs-pass">New password</label>
+      <input id="rs-pass" type="password" autocomplete="new-password" required>
+      <ul class="rules" id="rs-rules"></ul>
+      <button class="primary" type="submit">Set new password</button>
+      <div class="links"><button type="button" data-go="signin">Back to sign in</button></div>
+      <div class="err" role="alert" id="rs-err"></div>
+      <div class="ok" id="rs-ok"></div>
+    </form>
+  </div>
+  <div class="foot">Invite only. Ask your administrator for access.</div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let CFG = null, pending = null, setup = null;
+
+  const RULES = [
+    [p => p.length >= 12, "12 characters or more"], [p => /[a-z]/.test(p), "a lowercase letter"],
+    [p => /[A-Z]/.test(p), "an uppercase letter"], [p => /\d/.test(p), "a number"],
+    [p => /[^A-Za-z0-9]/.test(p), "a symbol"],
+  ];
+  function rules(listId, inputId) {
+    const p = $(inputId).value;
+    $(listId).innerHTML = RULES.map(([f, t]) => `<li class="${f(p) ? "met" : ""}">${t}</li>`).join("");
+    return RULES.every(([f]) => f(p));
+  }
+
+  function show(view) {
+    document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + view));
+    document.querySelectorAll(".err").forEach(e => e.textContent = "");
+    const first = $("v-" + view).querySelector("input"); if (first) first.focus();
+    if (view === "newpw") rules("np-rules", "np-pass");
+    if (view === "reset") rules("rs-rules", "rs-pass");
+  }
+  document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    if (b.dataset.go === "reset" && $("fg-email").value) $("rs-email").value = $("fg-email").value;
+    show(b.dataset.go);
+  });
+  document.querySelectorAll("input").forEach(i => i.addEventListener("input", () => {
+    i.removeAttribute("aria-invalid"); const f = i.closest("form"); const e = f && f.querySelector(".err"); if (e) e.textContent = "";
+  }));
+  $("np-pass").addEventListener("input", () => rules("np-rules", "np-pass"));
+  $("rs-pass").addEventListener("input", () => rules("rs-rules", "rs-pass"));
+
+  const NO_CLIENT = new Set(["GetUser", "AssociateSoftwareToken", "VerifySoftwareToken", "SetUserMFAPreference"]);
+  async function cognito(target, body) {
+    if (!CFG) CFG = await (await fetch("config.json", { cache: "no-store" })).json();
+    const r = await fetch(`https://cognito-idp.${CFG.region}.amazonaws.com/`, {
+      method: "POST", headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": `AWSCognitoIdentityProviderService.${target}` },
+      body: JSON.stringify(NO_CLIENT.has(target) ? body : { ClientId: CFG.clientId, ...body }) });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(out.message || "Something went wrong."); e.code = (out.__type || "").split("#").pop(); throw e; }
+    return out;
+  }
+  const FRIENDLY = {
+    NotAuthorizedException: "That email and password don't match, or the account is disabled.",
+    UserNotFoundException: "That email and password don't match.",
+    PasswordResetRequiredException: "An admin reset your password. Enter the code we emailed you.",
+    InvalidPasswordException: "That password doesn't meet the rules below.",
+    CodeMismatchException: "That code isn't right. Check the latest one.",
+    EnableSoftwareTokenMFAException: "That code isn't right. Wait for the next one and try again.",
+    ExpiredCodeException: "That code has expired. Ask for a new one.",
+    LimitExceededException: "Too many attempts. Wait a few minutes and try again.",
+    TooManyRequestsException: "Too many attempts. Wait a few minutes and try again.",
+  };
+  const say = (id, e) => $(id).textContent = FRIENDLY[e.code] || e.message;
+  const busy = (form, on) => form.querySelector("button.primary").disabled = on;
+  const validEmail = v => /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(v);
+
+  const emailNow = () => pending ? pending.email : $("si-email").value.trim().toLowerCase();
+  const groups = jwt => { try { return JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")))["cognito:groups"] || []; } catch (_) { return []; } };
+
+  async function next(res) {
+    if (res.ChallengeName === "SOFTWARE_TOKEN_MFA") { pending = { email: emailNow(), session: res.Session }; return show("mfa"); }
+    if (res.ChallengeName === "MFA_SETUP") return startSetup({ session: res.Session });
+    if (!res.AuthenticationResult) return $("si-err").textContent = "This account needs a sign-in step this page doesn't support yet.";
+    const a = res.AuthenticationResult;
+    if (groups(a.IdToken).includes("admin")) {
+      const me = await cognito("GetUser", { AccessToken: a.AccessToken });
+      if (!(me.UserMFASettingList || []).includes("SOFTWARE_TOKEN_MFA")) return startSetup({ access: a.AccessToken, res });
+    }
+    finish(res);
+  }
+
+  async function startSetup(ctx) {
+    const out = await cognito("AssociateSoftwareToken", ctx.access ? { AccessToken: ctx.access } : { Session: ctx.session });
+    setup = { ...ctx, session: out.Session || ctx.session };
+    const uri = `otpauth://totp/Undertow:${encodeURIComponent(emailNow())}?secret=${out.SecretCode}&issuer=Undertow`;
+    $("ms-secret").textContent = out.SecretCode.replace(/(.{4})/g, "$1 ").trim();
+    try { const q = qrcode(0, "M"); q.addData(uri); q.make(); $("ms-qr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+    catch (_) { $("ms-qr").style.display = "none"; }
+    show("mfasetup");
+  }
+
+  function finish(res) {
+    const a = res.AuthenticationResult;
+    const tok = { id: a.IdToken, access: a.AccessToken, refresh: a.RefreshToken,
+                  exp: Date.now() + (a.ExpiresIn || 3600) * 1000, email: pending ? pending.email : $("si-email").value.trim().toLowerCase() };
+    try { sessionStorage.setItem("undertow-auth", JSON.stringify(tok)); } catch (_) {
+      $("si-err").textContent = "This browser is blocking storage, so the session cannot be kept."; return;
+    }
+    const next = new URLSearchParams(location.search).get("next");
+    location.replace(next && /^[a-z0-9._-]+\.html$/i.test(next) ? next : "index.html");
+  }
+
+  $("v-signin").onsubmit = async e => {
+    e.preventDefault();
+    const email = $("si-email").value.trim().toLowerCase(), pass = $("si-pass").value;
+    if (!validEmail(email)) { $("si-email").setAttribute("aria-invalid", "true"); return $("si-err").textContent = "Enter your email address."; }
+    if (!pass) { $("si-pass").setAttribute("aria-invalid", "true"); return $("si-err").textContent = "Enter your password."; }
+    busy(e.target, true);
+    try {
+      const res = await cognito("InitiateAuth", { AuthFlow: "USER_PASSWORD_AUTH", AuthParameters: { USERNAME: email, PASSWORD: pass } });
+      if (res.ChallengeName === "NEW_PASSWORD_REQUIRED") { pending = { email, session: res.Session }; $("si-pass").value = ""; show("newpw"); }
+      else await next(res);
+    } catch (err) {
+      if (err.code === "PasswordResetRequiredException") { $("rs-email").value = email; show("reset"); say("rs-err", err); }
+      else say("si-err", err);
+    } finally { busy(e.target, false); }
+  };
+
+  $("v-newpw").onsubmit = async e => {
+    e.preventDefault();
+    const p1 = $("np-pass").value, p2 = $("np-pass2").value;
+    if (!rules("np-rules", "np-pass")) { $("np-pass").setAttribute("aria-invalid", "true"); return $("np-err").textContent = "Your password doesn't meet the rules yet."; }
+    if (p1 !== p2) { $("np-pass2").setAttribute("aria-invalid", "true"); return $("np-err").textContent = "The two passwords don't match."; }
+    busy(e.target, true);
+    try {
+      const res = await cognito("RespondToAuthChallenge", { ChallengeName: "NEW_PASSWORD_REQUIRED", Session: pending.session,
+        ChallengeResponses: { USERNAME: pending.email, NEW_PASSWORD: p1 } });
+      await next(res);
+    } catch (err) {
+      if (err.code === "NotAuthorizedException") { $("np-err").textContent = "That sign-in timed out. Sign in again with the temporary password."; setTimeout(() => show("signin"), 2500); }
+      else say("np-err", err);
+    } finally { busy(e.target, false); }
+  };
+
+  $("v-mfa").onsubmit = async e => {
+    e.preventDefault();
+    const code = $("mf-code").value.trim();
+    if (!/^\d{6}$/.test(code)) { $("mf-code").setAttribute("aria-invalid", "true"); return $("mf-err").textContent = "Enter the 6 digits from your app."; }
+    busy(e.target, true);
+    try {
+      const res = await cognito("RespondToAuthChallenge", { ChallengeName: "SOFTWARE_TOKEN_MFA", Session: pending.session,
+        ChallengeResponses: { USERNAME: pending.email, SOFTWARE_TOKEN_MFA_CODE: code } });
+      await next(res);
+    } catch (err) {
+      if (err.code === "NotAuthorizedException") { $("mf-err").textContent = "That sign-in timed out. Sign in again."; setTimeout(() => show("signin"), 2500); }
+      else say("mf-err", err);
+    } finally { busy(e.target, false); }
+  };
+
+  $("v-mfasetup").onsubmit = async e => {
+    e.preventDefault();
+    const code = $("ms-code").value.trim();
+    if (!/^\d{6}$/.test(code)) { $("ms-code").setAttribute("aria-invalid", "true"); return $("ms-err").textContent = "Enter the 6 digits from your app."; }
+    busy(e.target, true);
+    try {
+      if (setup.access) {
+        await cognito("VerifySoftwareToken", { AccessToken: setup.access, UserCode: code, FriendlyDeviceName: "Undertow" });
+        await cognito("SetUserMFAPreference", { AccessToken: setup.access, SoftwareTokenMfaSettings: { Enabled: true, PreferredMfa: true } });
+        finish(setup.res);
+      } else {
+        const v = await cognito("VerifySoftwareToken", { Session: setup.session, UserCode: code, FriendlyDeviceName: "Undertow" });
+        const res = await cognito("RespondToAuthChallenge", { ChallengeName: "MFA_SETUP", Session: v.Session,
+          ChallengeResponses: { USERNAME: emailNow() } });
+        await next(res);
+      }
+    } catch (err) { say("ms-err", err); } finally { busy(e.target, false); }
+  };
+
+  $("v-forgot").onsubmit = async e => {
+    e.preventDefault();
+    const email = $("fg-email").value.trim().toLowerCase();
+    if (!validEmail(email)) { $("fg-email").setAttribute("aria-invalid", "true"); return $("fg-err").textContent = "Enter your email address."; }
+    busy(e.target, true);
+    try {
+      await cognito("ForgotPassword", { Username: email });
+      $("rs-email").value = email; show("reset");
+      $("rs-sub").textContent = `If ${email} has an account, a code is on its way. It expires in 1 hour.`;
+    } catch (err) { say("fg-err", err); } finally { busy(e.target, false); }
+  };
+
+  $("v-reset").onsubmit = async e => {
+    e.preventDefault();
+    const email = $("rs-email").value.trim().toLowerCase(), code = $("rs-code").value.trim(), pass = $("rs-pass").value;
+    if (!validEmail(email)) { $("rs-email").setAttribute("aria-invalid", "true"); return $("rs-err").textContent = "Enter your email address."; }
+    if (!/^\d{6,8}$/.test(code)) { $("rs-code").setAttribute("aria-invalid", "true"); return $("rs-err").textContent = "Enter the 6-digit code from the email."; }
+    if (!rules("rs-rules", "rs-pass")) { $("rs-pass").setAttribute("aria-invalid", "true"); return $("rs-err").textContent = "Your password doesn't meet the rules yet."; }
+    busy(e.target, true);
+    try {
+      await cognito("ConfirmForgotPassword", { Username: email, ConfirmationCode: code, Password: pass });
+      $("rs-ok").textContent = "Password changed. Sign in with it now.";
+      $("si-email").value = email; setTimeout(() => show("signin"), 1500);
+    } catch (err) { say("rs-err", err); } finally { busy(e.target, false); }
+  };
+
+  if (new URLSearchParams(location.search).get("signedout")) $("si-err").textContent = "";
+})();
+</script>
+</body>
+</html>

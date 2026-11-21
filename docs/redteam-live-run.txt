@@ -1,0 +1,14 @@
+
+[model concluded]
+
+== assessment complete ==
+{
+  "requests": 0,
+  "cell_hits": 0,
+  "turns": 1,
+  "bytes_served": 0,
+  "tokens_we_fed": 0,
+  "model_in_tokens": 671,
+  "model_out_tokens": 0,
+  "est_model_cost_usd": 0.0
+}

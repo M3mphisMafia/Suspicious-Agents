@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Put another app behind the Undertow engine - its own CloudFront distribution sharing the engine's WAF, cell router and padded cell. us-east-1.
+
+Parameters:
+  AppName:
+    Type: String
+    AllowedPattern: "^[a-z0-9-]{1,40}$"
+  OriginDomainName:
+    Type: String
+    Description: The app's origin (ALB, API Gateway or function URL hostname).
+  OriginVerifySecretArn:
+    Type: String
+    Description: The engine's origin secret (Secrets Manager). The app and the cell both check it.
+  EngineStack:
+    Type: String
+    Default: undertow-edge
+  OriginForwardsHost:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  DomainName:
+    Type: String
+    Default: ""
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+
+Conditions:
+  HasDomain: !And [!Not [!Equals [!Ref DomainName, ""]], !Not [!Equals [!Ref AcmCertificateArn, ""]]]
+  ForwardHost: !Equals [!Ref OriginForwardsHost, "true"]
+
+Resources:
+  Forward:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "undertow-${AppName}-forward"
+        CookiesConfig: { CookieBehavior: all }
+        QueryStringsConfig: { QueryStringBehavior: all }
+        HeadersConfig: !If
+          - ForwardHost
+          - HeaderBehavior: allViewerAndWhitelistCloudFront
+            Headers: [CloudFront-Viewer-JA4-Fingerprint, CloudFront-Viewer-Address]
+          - HeaderBehavior: whitelist
+            Headers: [User-Agent, Content-Type, Accept, Authorization, Origin, Referer,
+                      CloudFront-Viewer-JA4-Fingerprint, CloudFront-Viewer-Address, x-amzn-waf-undertow-challenge,
+                      x-amzn-waf-undertow-allow]   # 10 is CloudFront's limit
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "Undertow: ${AppName}"
+        WebACLId: { "Fn::ImportValue": !Sub "${EngineStack}-WebAclArn" }   # one WAF, one log, one scorer
+        HttpVersion: http2and3
+        Aliases: !If [HasDomain, [!Ref DomainName], !Ref AWS::NoValue]
+        ViewerCertificate: !If
+          - HasDomain
+          - { AcmCertificateArn: !Ref AcmCertificateArn, SslSupportMethod: sni-only, MinimumProtocolVersion: TLSv1.2_2021 }
+          - { CloudFrontDefaultCertificate: true }
+        Origins:
+          - Id: app
+            DomainName: !Ref OriginDomainName
+            CustomOriginConfig: { OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2], OriginReadTimeout: 60 }
+            OriginCustomHeaders:
+              - { HeaderName: X-Origin-Verify, HeaderValue: !Sub "{{resolve:secretsmanager:${OriginVerifySecretArn}:SecretString}}" }
+          - Id: cell   # the cell router selects this id for confirmed agents
+            DomainName: { "Fn::ImportValue": !Sub "${EngineStack}-CellOriginDomain" }
+            CustomOriginConfig: { OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2], OriginReadTimeout: 30 }
+            OriginCustomHeaders:
+              - { HeaderName: X-Origin-Verify, HeaderValue: !Sub "{{resolve:secretsmanager:${OriginVerifySecretArn}:SecretString}}" }
+        DefaultCacheBehavior:
+          TargetOriginId: app
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad   # CachingDisabled
+          OriginRequestPolicyId: !Ref Forward
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: { "Fn::ImportValue": !Sub "${EngineStack}-CellRouterArn" }
+
+Outputs:
+  DistributionDomain: { Value: !GetAtt Distribution.DomainName }
+  AppUrl: { Value: !If [HasDomain, !Sub "https://${DomainName}/", !Sub "https://${Distribution.DomainName}/"] }

@@ -1,0 +1,385 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Undertow pipeline - CodeCommit main -> self-update -> package -> CloudFormation (store, edge) -> publish. us-east-1.
+
+Parameters:
+  AdminCidrs:
+    Type: String
+    Description: Comma-separated IPv4 CIDRs allowed to open the dashboard.
+  ScorerMode:
+    Type: String
+    Default: observe
+    AllowedValues: [observe, enforce]
+  DecoyPrefix:
+    Type: String
+    Default: /api/v1/internal/ops
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Where Undertow alerts go (kept as a stack parameter, not in the repo).
+  AdminEmail:
+    Type: String
+    Default: ""
+    Description: First dashboard admin (kept as a stack parameter, not in the repo).
+
+Mappings:
+  Stacks:
+    Names: { Store: undertow-store, Edge: undertow-edge }
+
+Resources:
+  Repo:
+    Type: AWS::CodeCommit::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: undertow
+      RepositoryDescription: Undertow - detect and slow autonomous AI attack agents (mirror of GitHub AA-AI)
+
+  Artifacts:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }]
+      LifecycleConfiguration:
+        Rules: [{ Id: expire, Status: Enabled, ExpirationInDays: 30 }]
+
+  # ---------- package: build the code and write each stack's parameters; deploys nothing ----------
+  PackageRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: package
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/undertow-package:*"
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:GetObjectVersion]
+                Resource: !Sub "${Artifacts.Arn}/*"
+              - Effect: Allow
+                Action: s3:ListBucket   # head-object answers 404, not 403, for a layer not built yet
+                Resource: !GetAtt Artifacts.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/undertow/judge/model"
+              - Effect: Allow
+                Action: [ec2:DescribePrefixLists, cloudformation:DescribeStacks]
+                Resource: "*"
+              - Effect: Allow   # edge controls set live from the dashboard survive the deploy
+                Action: dynamodb:GetItem
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/undertow-edge-ScorerTable-*"
+
+  Package:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: undertow-package
+      ServiceRole: !GetAtt PackageRole.Arn
+      Artifacts: { Type: CODEPIPELINE }
+      Source: { Type: CODEPIPELINE, BuildSpec: infra/buildspec-package.yml }
+      TimeoutInMinutes: 20
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:6.0
+        EnvironmentVariables:
+          - { Name: ARTIFACT_BUCKET, Value: !Ref Artifacts }
+          - { Name: ADMIN_CIDRS, Value: !Ref AdminCidrs }
+          - { Name: SCORER_MODE, Value: !Ref ScorerMode }
+          - { Name: DECOY_PREFIX, Value: !Ref DecoyPrefix }
+          - { Name: ALERT_EMAIL, Value: !Ref AlertEmail }
+          - { Name: ADMIN_EMAIL, Value: !Ref AdminEmail }
+          - { Name: APP_STACK, Value: !FindInMap [Stacks, Names, Store] }
+          - { Name: EDGE_STACK, Value: !FindInMap [Stacks, Names, Edge] }
+
+  PackageLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/undertow-package
+      RetentionInDays: 30
+
+  # ---------- publish: what CloudFormation does not hold (pages, decoys, bait, extra apps) ----------
+  PublishRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: publish
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/undertow-publish:*"
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion]
+                Resource: !Sub "${Artifacts.Arn}/*"
+              - Effect: Allow
+                Action: [s3:PutObject, s3:DeleteObject, s3:ListBucket, s3:GetObject]
+                Resource:
+                  - "arn:aws:s3:::undertow-edge-dashboardbucket-*"
+                  - "arn:aws:s3:::undertow-edge-dashboardbucket-*/*"
+                  - "arn:aws:s3:::undertow-edge-decoybucket-*"
+                  - "arn:aws:s3:::undertow-edge-decoybucket-*/*"
+              - Effect: Allow   # the zero-permission canary key, planted in the decoy files
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:CanarySecret-*"
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: "*"
+              - Effect: Allow   # one protect-app stack per infra/apps.json entry, deployed as the CloudFormation role
+                Action: [cloudformation:CreateChangeSet, cloudformation:ExecuteChangeSet, cloudformation:DescribeChangeSet,
+                         cloudformation:DeleteChangeSet, cloudformation:DescribeStackEvents, cloudformation:GetTemplateSummary]
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/undertow-app-*/*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CfnRole.Arn
+
+  Publish:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: undertow-publish
+      ServiceRole: !GetAtt PublishRole.Arn
+      Artifacts: { Type: CODEPIPELINE }
+      Source: { Type: CODEPIPELINE, BuildSpec: infra/buildspec-publish.yml }
+      TimeoutInMinutes: 20
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:6.0
+        EnvironmentVariables:
+          - { Name: DECOY_PREFIX, Value: !Ref DecoyPrefix }
+          - { Name: APP_STACK, Value: !FindInMap [Stacks, Names, Store] }
+          - { Name: EDGE_STACK, Value: !FindInMap [Stacks, Names, Edge] }
+          - { Name: CFN_ROLE_ARN, Value: !GetAtt CfnRole.Arn }
+
+  PublishLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/undertow-publish
+      RetentionInDays: 30
+
+  # On-demand only (not a pipeline stage): replays an agent run from a fresh AWS IP
+  AttackSimRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: logs-and-source
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/undertow-attack-sim:*"
+              - Effect: Allow
+                Action: codecommit:GitPull
+                Resource: !GetAtt Repo.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/undertow/artex/level"
+
+  ArtexLevel:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /undertow/artex/level
+      Type: String
+      Value: "0"
+      Description: ARTEX ramp intensity 0-6 (0 idle). Change live to ramp the attack up or down.
+
+  AttackSim:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: undertow-attack-sim
+      ServiceRole: !GetAtt AttackSimRole.Arn
+      TimeoutInMinutes: 60
+      Artifacts: { Type: NO_ARTIFACTS }
+      Source: { Type: CODECOMMIT, Location: !GetAtt Repo.CloneUrlHttp, BuildSpec: infra/buildspec-attack.yml }
+      SourceVersion: refs/heads/main
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:6.0
+        EnvironmentVariables:
+          - { Name: TARGET, Value: "" }
+          - { Name: LINGER, Value: "300" }
+
+  AttackSimLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/undertow-attack-sim
+      RetentionInDays: 30
+
+  # CloudFormation deploys every stack as this role; the pipeline and builds only pass it
+  CfnRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudformation.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"]
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codepipeline.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: pipeline
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:PutObject, s3:GetBucketVersioning, s3:ListBucket]
+                Resource: [!GetAtt Artifacts.Arn, !Sub "${Artifacts.Arn}/*"]
+              - Effect: Allow
+                Action: [codecommit:GetBranch, codecommit:GetCommit, codecommit:UploadArchive,
+                         codecommit:GetUploadArchiveStatus, codecommit:CancelUploadArchive, codecommit:GetRepository]
+                Resource: !GetAtt Repo.Arn
+              - Effect: Allow
+                Action: [codebuild:StartBuild, codebuild:BatchGetBuilds]
+                Resource: [!GetAtt Package.Arn, !GetAtt Publish.Arn]
+              - Effect: Allow
+                Action: [cloudformation:DescribeStacks, cloudformation:CreateStack, cloudformation:UpdateStack,
+                         cloudformation:DescribeStackEvents, cloudformation:CreateChangeSet,
+                         cloudformation:ExecuteChangeSet, cloudformation:DescribeChangeSet, cloudformation:DeleteChangeSet]
+                Resource:
+                  - !Ref AWS::StackId
+                  - !Sub
+                    - "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${S}/*"
+                    - { S: !FindInMap [Stacks, Names, Store] }
+                  - !Sub
+                    - "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${S}/*"
+                    - { S: !FindInMap [Stacks, Names, Edge] }
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CfnRole.Arn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: undertow
+      PipelineType: V2
+      RoleArn: !GetAtt PipelineRole.Arn
+      RestartExecutionOnUpdate: true
+      ArtifactStore: { Type: S3, Location: !Ref Artifacts }
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId: { Category: Source, Owner: AWS, Provider: CodeCommit, Version: "1" }
+              Configuration: { RepositoryName: !GetAtt Repo.Name, BranchName: main, PollForSourceChanges: false }
+              OutputArtifacts: [{ Name: Src }]
+        - Name: UpdatePipeline
+          Actions:
+            - Name: SelfUpdate
+              ActionTypeId: { Category: Deploy, Owner: AWS, Provider: CloudFormation, Version: "1" }
+              InputArtifacts: [{ Name: Src }]
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Ref AWS::StackName
+                TemplatePath: Src::infra/pipeline.yaml
+                Capabilities: CAPABILITY_IAM
+                RoleArn: !GetAtt CfnRole.Arn
+                ParameterOverrides: !Sub '{"AdminCidrs":"${AdminCidrs}","ScorerMode":"${ScorerMode}","DecoyPrefix":"${DecoyPrefix}","AlertEmail":"${AlertEmail}","AdminEmail":"${AdminEmail}"}'
+        - Name: Package
+          Actions:
+            - Name: CodeAndParameters
+              ActionTypeId: { Category: Build, Owner: AWS, Provider: CodeBuild, Version: "1" }
+              InputArtifacts: [{ Name: Src }]
+              OutputArtifacts: [{ Name: Pkg }]
+              Configuration: { ProjectName: !Ref Package }
+        - Name: Deploy
+          Actions:
+            - Name: Store
+              RunOrder: 1
+              ActionTypeId: { Category: Deploy, Owner: AWS, Provider: CloudFormation, Version: "1" }
+              InputArtifacts: [{ Name: Pkg }]
+              OutputArtifacts: [{ Name: StoreOut }]
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !FindInMap [Stacks, Names, Store]
+                TemplatePath: Pkg::infra/store-app.yaml
+                TemplateConfiguration: Pkg::cfn/store.json
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+                RoleArn: !GetAtt CfnRole.Arn
+                OutputFileName: outputs.json
+            - Name: Edge
+              RunOrder: 2
+              ActionTypeId: { Category: Deploy, Owner: AWS, Provider: CloudFormation, Version: "1" }
+              InputArtifacts: [{ Name: Pkg }, { Name: StoreOut }]
+              OutputArtifacts: [{ Name: EdgeOut }]
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !FindInMap [Stacks, Names, Edge]
+                TemplatePath: Pkg::infra/edge-shield.yaml
+                TemplateConfiguration: Pkg::cfn/edge.json
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+                RoleArn: !GetAtt CfnRole.Arn
+                OutputFileName: outputs.json
+                # the store's outputs flow straight into the edge
+                ParameterOverrides: >-
+                  {"OriginDomainName": {"Fn::GetParam": ["StoreOut", "outputs.json", "OriginDomainName"]},
+                   "OriginVerifySecretArn": {"Fn::GetParam": ["StoreOut", "outputs.json", "OriginSecretArn"]},
+                   "AppLogGroupName": {"Fn::GetParam": ["StoreOut", "outputs.json", "AppLogGroupName"]}}
+        - Name: Publish
+          Actions:
+            - Name: PagesDecoysApps
+              ActionTypeId: { Category: Build, Owner: AWS, Provider: CodeBuild, Version: "1" }
+              InputArtifacts: [{ Name: Pkg }, { Name: EdgeOut }]
+              Configuration: { ProjectName: !Ref Publish, PrimarySource: Pkg }
+
+  TriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: start
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub "arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
+
+  Trigger:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source: [aws.codecommit]
+        detail-type: [CodeCommit Repository State Change]
+        resources: [!GetAtt Repo.Arn]
+        detail:
+          event: [referenceCreated, referenceUpdated]
+          referenceType: [branch]
+          referenceName: [main]
+      Targets:
+        - Id: pipeline
+          Arn: !Sub "arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
+          RoleArn: !GetAtt TriggerRole.Arn
+
+Outputs:
+  CloneUrl: { Value: !GetAtt Repo.CloneUrlHttp }
+  PipelineName: { Value: !Ref Pipeline }

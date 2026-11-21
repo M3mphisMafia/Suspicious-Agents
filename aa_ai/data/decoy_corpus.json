@@ -1,0 +1,1134 @@
+{
+ "generated_by": "llm",
+ "domain": "northwind-retail.example",
+ "routes": {
+  "export": [
+   {
+    "account": "Bramblecrest Supply Co",
+    "email": "billing+bramblecrest@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "NA-East",
+    "created_at": "2026-01-04T09:12:33Z",
+    "id": 731596748
+   },
+   {
+    "account": "Halverd Home Goods",
+    "email": "accounts+halverd@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "NA-West",
+    "created_at": "2026-01-06T15:41:08Z",
+    "id": 731096667
+   },
+   {
+    "account": "Quillstone Outfitters",
+    "email": "ops+quillstone@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1290,
+    "region": "EU-West",
+    "created_at": "2026-01-09T11:03:51Z",
+    "id": 731061723
+   },
+   {
+    "account": "Tarnwick Hardware Group",
+    "email": "finance+tarnwick@northwind-retail.example",
+    "plan": "Enterprise",
+    "mrr_usd": 18750,
+    "region": "NA-East",
+    "created_at": "2026-01-11T08:27:14Z",
+    "id": 731590892
+   },
+   {
+    "account": "Mossgate Pantry",
+    "email": "billing+mossgate@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "EU-Central",
+    "created_at": "2026-01-15T13:55:02Z",
+    "id": 731681053
+   },
+   {
+    "account": "Ferrowyn Industrial Supply",
+    "email": "procurement+ferrowyn@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1490,
+    "region": "NA-West",
+    "created_at": "2026-01-19T17:20:46Z",
+    "id": 731318180
+   },
+   {
+    "account": "Lindmar Textiles",
+    "email": "accounts+lindmar@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 399,
+    "region": "EU-Central",
+    "created_at": "2026-01-23T10:08:19Z",
+    "id": 731325620
+   },
+   {
+    "account": "Corvane Pet Provisions",
+    "email": "billing+corvane@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 0,
+    "region": "NA-East",
+    "created_at": "2026-01-28T22:46:37Z",
+    "id": 731025809
+   },
+   {
+    "account": "Ashbury & Pell Stationers",
+    "email": "admin+ashburypell@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "EU-West",
+    "created_at": "2026-02-02T09:31:55Z",
+    "id": 731942068
+   },
+   {
+    "account": "Sundrell Market Collective",
+    "email": "ops+sundrell@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 525,
+    "region": "APAC",
+    "created_at": "2026-02-07T03:14:22Z",
+    "id": 731022579
+   },
+   {
+    "account": "Kestrova Building Materials",
+    "email": "finance+kestrova@northwind-retail.example",
+    "plan": "Enterprise",
+    "mrr_usd": 9400,
+    "region": "EU-Central",
+    "created_at": "2026-02-12T12:49:08Z",
+    "id": 731253864
+   },
+   {
+    "account": "Pellucid Kitchenware",
+    "email": "billing+pellucid@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 99,
+    "region": "NA-West",
+    "created_at": "2026-02-18T19:02:41Z",
+    "id": 731481774
+   },
+   {
+    "account": "Oaktrail Garden Wholesale",
+    "email": "accounts+oaktrail@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1190,
+    "region": "NA-East",
+    "created_at": "2026-02-24T14:37:10Z",
+    "id": 731553044
+   },
+   {
+    "account": "Vimbrook Beverage Distributors",
+    "email": "ops+vimbrook@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1340,
+    "region": "LATAM",
+    "created_at": "2026-03-03T16:58:29Z",
+    "id": 731680707
+   },
+   {
+    "account": "Greyhollow Office Depot Co-op",
+    "email": "billing+greyhollow@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "NA-East",
+    "created_at": "2026-03-08T10:21:44Z",
+    "id": 731803701
+   },
+   {
+    "account": "Ruskfield Apparel",
+    "email": "finance+ruskfield@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "EU-West",
+    "created_at": "2026-03-14T08:05:16Z",
+    "id": 731413006
+   },
+   {
+    "account": "Tamberline Toys & Games",
+    "email": "accounts+tamberline@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 610,
+    "region": "APAC",
+    "created_at": "2026-03-21T02:44:59Z",
+    "id": 731763367
+   },
+   {
+    "account": "Wexmoor Medical Supply",
+    "email": "procurement+wexmoor@northwind-retail.example",
+    "plan": "Enterprise",
+    "mrr_usd": 42300,
+    "region": "NA-West",
+    "created_at": "2026-03-27T18:13:27Z",
+    "id": 731167618
+   },
+   {
+    "account": "Cindral Craft Goods",
+    "email": "billing+cindral@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "LATAM",
+    "created_at": "2026-04-02T13:39:03Z",
+    "id": 731958802
+   },
+   {
+    "account": "Halcourt Furnishings",
+    "email": "ops+halcourt@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 990,
+    "region": "EU-Central",
+    "created_at": "2026-04-09T09:52:38Z",
+    "id": 731653769
+   },
+   {
+    "account": "Brindleway Bakery Supply",
+    "email": "accounts+brindleway@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 99,
+    "region": "NA-East",
+    "created_at": "2026-04-15T11:26:50Z",
+    "id": 731599703
+   },
+   {
+    "account": "Ostrand Auto Parts",
+    "email": "finance+ostrand@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "NA-West",
+    "created_at": "2026-04-22T20:18:12Z",
+    "id": 731680480
+   },
+   {
+    "account": "Selwyn Ridge Electronics",
+    "email": "billing+selwynridge@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1490,
+    "region": "APAC",
+    "created_at": "2026-05-01T04:07:33Z",
+    "id": 731673703
+   },
+   {
+    "account": "Duncairn Outdoor Co",
+    "email": "admin+duncairn@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 399,
+    "region": "EU-West",
+    "created_at": "2026-05-08T15:44:21Z",
+    "id": 731972234
+   },
+   {
+    "account": "Marrowdale Cleaning Supplies",
+    "email": "ops+marrowdale@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "NA-East",
+    "created_at": "2026-05-16T12:30:05Z",
+    "id": 731913662
+   },
+   {
+    "account": "Thistlecombe Foods",
+    "email": "accounts+thistlecombe@northwind-retail.example",
+    "plan": "Enterprise",
+    "mrr_usd": 12600,
+    "region": "EU-West",
+    "created_at": "2026-05-27T07:58:46Z",
+    "id": 731482671
+   },
+   {
+    "account": "Penhallow Beauty Wholesale",
+    "email": "billing+penhallow@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 475,
+    "region": "LATAM",
+    "created_at": "2026-06-05T17:11:39Z",
+    "id": 731876287
+   },
+   {
+    "account": "Ilverston Packaging",
+    "email": "procurement+ilverston@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1190,
+    "region": "NA-West",
+    "created_at": "2026-06-17T10:47:24Z",
+    "id": 731109596
+   },
+   {
+    "account": "Fennick Lane Books",
+    "email": "billing+fennicklane@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "EU-Central",
+    "created_at": "2026-06-29T14:02:57Z",
+    "id": 731225485
+   },
+   {
+    "account": "Cobalt Hearth Ceramics",
+    "email": "ops+cobalthearth@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "NA-East",
+    "created_at": "2026-07-10T09:15:30Z",
+    "id": 731641848
+   },
+   {
+    "account": "Yarrowmere Farm Supply",
+    "email": "accounts+yarrowmere@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 99,
+    "region": "NA-West",
+    "created_at": "2026-07-24T16:33:48Z",
+    "id": 731197919
+   },
+   {
+    "account": "Strandholt Marine Goods",
+    "email": "finance+strandholt@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 2180,
+    "region": "EU-Central",
+    "created_at": "2026-08-06T11:49:13Z",
+    "id": 731413533
+   },
+   {
+    "account": "Embervale Lighting",
+    "email": "billing+embervale@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "APAC",
+    "created_at": "2026-08-19T05:26:02Z",
+    "id": 731141420
+   },
+   {
+    "account": "Corrigan Mews Pharmacy Supply",
+    "email": "ops+corriganmews@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "EU-West",
+    "created_at": "2026-09-02T13:08:44Z",
+    "id": 731179348
+   },
+   {
+    "account": "Blackfen Sporting Goods",
+    "email": "accounts+blackfen@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 560,
+    "region": "NA-East",
+    "created_at": "2026-09-18T18:52:17Z",
+    "id": 731850888
+   },
+   {
+    "account": "Orrin Vale Distribution",
+    "email": "procurement+orrinvale@northwind-retail.example",
+    "plan": "Enterprise",
+    "mrr_usd": 7850,
+    "region": "LATAM",
+    "created_at": "2026-10-03T15:20:36Z",
+    "id": 731437564
+   },
+   {
+    "account": "Whitlow Paper Mill Outlet",
+    "email": "billing+whitlow@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 79,
+    "region": "NA-West",
+    "created_at": "2026-10-21T08:41:59Z",
+    "id": 731162934
+   },
+   {
+    "account": "Glenmara Wine Merchants",
+    "email": "finance+glenmara@northwind-retail.example",
+    "plan": "Pro",
+    "mrr_usd": 1290,
+    "region": "EU-West",
+    "created_at": "2026-11-04T12:14:28Z",
+    "id": 731102654
+   },
+   {
+    "account": "Trevault Tools Ltd",
+    "email": "ops+trevault@northwind-retail.example",
+    "plan": "Growth",
+    "mrr_usd": 449,
+    "region": "EU-Central",
+    "created_at": "2026-11-12T10:37:05Z",
+    "id": 731608794
+   },
+   {
+    "account": "Kinloss Fresh Produce",
+    "email": "accounts+kinloss@northwind-retail.example",
+    "plan": "Starter",
+    "mrr_usd": 0,
+    "region": "APAC",
+    "created_at": "2026-11-14T01:59:42Z",
+    "id": 731417619
+   }
+  ],
+  "admin/users": [
+   {
+    "email": "maren.okafor@northwind-retail.example",
+    "name": "Maren Okafor",
+    "role": "super_admin",
+    "last_login": "2026-03-14T08:12:44Z",
+    "mfa_enabled": true,
+    "id": 731468113
+   },
+   {
+    "email": "tobias.lindqvar@northwind-retail.example",
+    "name": "Tobias Lindqvar",
+    "role": "admin",
+    "last_login": "2026-03-14T07:55:10Z",
+    "mfa_enabled": true,
+    "id": 731229676
+   },
+   {
+    "email": "priya.venkatesh@northwind-retail.example",
+    "name": "Priya Venkatesh",
+    "role": "admin",
+    "last_login": "2026-03-13T16:40:02Z",
+    "mfa_enabled": true,
+    "id": 731873465
+   },
+   {
+    "email": "dmitri.halvorsen@northwind-retail.example",
+    "name": "Dmitri Halvorsen",
+    "role": "admin",
+    "last_login": "2026-01-06T11:03:19Z",
+    "mfa_enabled": false,
+    "id": 731300760
+   },
+   {
+    "email": "ana.ferreira-quist@northwind-retail.example",
+    "name": "Ana Ferreira-Quist",
+    "role": "support",
+    "last_login": "2026-03-14T09:21:37Z",
+    "mfa_enabled": true,
+    "id": 731335993
+   },
+   {
+    "email": "kwame.adjeibo@northwind-retail.example",
+    "name": "Kwame Adjeibo",
+    "role": "support",
+    "last_login": "2026-03-14T06:48:55Z",
+    "mfa_enabled": true,
+    "id": 731631627
+   },
+   {
+    "email": "lena.morvath@northwind-retail.example",
+    "name": "Lena Morvath",
+    "role": "support",
+    "last_login": "2026-03-13T22:15:08Z",
+    "mfa_enabled": true,
+    "id": 731662905
+   },
+   {
+    "email": "jules.tremaine@northwind-retail.example",
+    "name": "Jules Tremaine",
+    "role": "support",
+    "last_login": "2026-03-12T14:30:41Z",
+    "mfa_enabled": true,
+    "id": 731249315
+   },
+   {
+    "email": "sofia.brennagh@northwind-retail.example",
+    "name": "Sofia Brennagh",
+    "role": "support",
+    "last_login": "2026-03-14T10:02:13Z",
+    "mfa_enabled": true,
+    "id": 731662033
+   },
+   {
+    "email": "haruto.ishikane@northwind-retail.example",
+    "name": "Haruto Ishikane",
+    "role": "support",
+    "last_login": "2026-03-11T09:17:26Z",
+    "mfa_enabled": true,
+    "id": 731792218
+   },
+   {
+    "email": "camila.ostrander@northwind-retail.example",
+    "name": "Camila Ostrander",
+    "role": "support",
+    "last_login": "2026-03-14T08:44:50Z",
+    "mfa_enabled": false,
+    "id": 731059745
+   },
+   {
+    "email": "noah.pettigrove@northwind-retail.example",
+    "name": "Noah Pettigrove",
+    "role": "support",
+    "last_login": "2026-03-10T17:59:03Z",
+    "mfa_enabled": true,
+    "id": 731586441
+   },
+   {
+    "email": "yara.delacourt@northwind-retail.example",
+    "name": "Yara Delacourt",
+    "role": "support",
+    "last_login": "2026-02-27T13:05:22Z",
+    "mfa_enabled": true,
+    "id": 731606181
+   },
+   {
+    "email": "emeka.nwosuli@northwind-retail.example",
+    "name": "Emeka Nwosuli",
+    "role": "support",
+    "last_login": "2026-03-13T19:36:48Z",
+    "mfa_enabled": true,
+    "id": 731876794
+   },
+   {
+    "email": "ingrid.haaskjold@northwind-retail.example",
+    "name": "Ingrid Haaskjold",
+    "role": "support",
+    "last_login": "2026-03-14T05:58:31Z",
+    "mfa_enabled": true,
+    "id": 731403910
+   },
+   {
+    "email": "rafael.monteverro@northwind-retail.example",
+    "name": "Rafael Monteverro",
+    "role": "analyst",
+    "last_login": "2026-03-13T15:12:07Z",
+    "mfa_enabled": true,
+    "id": 731713999
+   },
+   {
+    "email": "mei.tanroshi@northwind-retail.example",
+    "name": "Mei Tanroshi",
+    "role": "analyst",
+    "last_login": "2026-03-12T10:47:59Z",
+    "mfa_enabled": true,
+    "id": 731395823
+   },
+   {
+    "email": "oliver.cresswade@northwind-retail.example",
+    "name": "Oliver Cresswade",
+    "role": "analyst",
+    "last_login": "2026-03-09T12:23:44Z",
+    "mfa_enabled": true,
+    "id": 731419597
+   },
+   {
+    "email": "fatima.zahrani-ole@northwind-retail.example",
+    "name": "Fatima Zahrani-Ole",
+    "role": "analyst",
+    "last_login": "2026-03-14T09:50:16Z",
+    "mfa_enabled": true,
+    "id": 731327788
+   },
+   {
+    "email": "bastian.quellmoor@northwind-retail.example",
+    "name": "Bastian Quellmoor",
+    "role": "analyst",
+    "last_login": "2026-02-18T08:31:02Z",
+    "mfa_enabled": false,
+    "id": 731878606
+   },
+   {
+    "email": "nadia.kovrenko@northwind-retail.example",
+    "name": "Nadia Kovrenko",
+    "role": "analyst",
+    "last_login": "2026-03-13T11:08:35Z",
+    "mfa_enabled": true,
+    "id": 731686679
+   },
+   {
+    "email": "theo.marchbanks@northwind-retail.example",
+    "name": "Theo Marchbanks",
+    "role": "analyst",
+    "last_login": "2026-03-06T16:42:19Z",
+    "mfa_enabled": true,
+    "id": 731073374
+   },
+   {
+    "email": "ruth.abernakis@northwind-retail.example",
+    "name": "Ruth Abernakis",
+    "role": "catalog_editor",
+    "last_login": "2026-03-14T07:19:53Z",
+    "mfa_enabled": true,
+    "id": 731397869
+   },
+   {
+    "email": "samir.elhadwan@northwind-retail.example",
+    "name": "Samir Elhadwan",
+    "role": "catalog_editor",
+    "last_login": "2026-03-13T13:26:40Z",
+    "mfa_enabled": true,
+    "id": 731180820
+   },
+   {
+    "email": "greta.vonhalde@northwind-retail.example",
+    "name": "Greta Vonhalde",
+    "role": "catalog_editor",
+    "last_login": "2026-03-12T09:54:11Z",
+    "mfa_enabled": true,
+    "id": 731588350
+   },
+   {
+    "email": "luis.carbajano@northwind-retail.example",
+    "name": "Luis Carbajano",
+    "role": "catalog_editor",
+    "last_login": "2026-03-11T15:37:28Z",
+    "mfa_enabled": false,
+    "id": 731130261
+   },
+   {
+    "email": "aisling.mccarrow@northwind-retail.example",
+    "name": "Aisling McCarrow",
+    "role": "catalog_editor",
+    "last_login": "2026-03-14T10:11:06Z",
+    "mfa_enabled": true,
+    "id": 731545636
+   },
+   {
+    "email": "viktor.sandmoen@northwind-retail.example",
+    "name": "Viktor Sandmoen",
+    "role": "finance",
+    "last_login": "2026-03-13T08:03:57Z",
+    "mfa_enabled": true,
+    "id": 731327151
+   },
+   {
+    "email": "chiara.belfontini@northwind-retail.example",
+    "name": "Chiara Belfontini",
+    "role": "finance",
+    "last_login": "2026-03-10T14:49:33Z",
+    "mfa_enabled": true,
+    "id": 731566146
+   },
+   {
+    "email": "daniel.ashworne@northwind-retail.example",
+    "name": "Daniel Ashworne",
+    "role": "finance",
+    "last_login": "2026-03-14T06:27:45Z",
+    "mfa_enabled": true,
+    "id": 731283452
+   },
+   {
+    "email": "zainab.oyelaran@northwind-retail.example",
+    "name": "Zainab Oyelaran",
+    "role": "viewer",
+    "last_login": "2026-03-12T18:14:22Z",
+    "mfa_enabled": true,
+    "id": 731018984
+   },
+   {
+    "email": "pieter.vandermolt@northwind-retail.example",
+    "name": "Pieter Vandermolt",
+    "role": "viewer",
+    "last_login": "2026-03-05T10:38:09Z",
+    "mfa_enabled": false,
+    "id": 731141062
+   },
+   {
+    "email": "hana.rosalek@northwind-retail.example",
+    "name": "Hana Rosalek",
+    "role": "viewer",
+    "last_login": "2026-03-13T12:52:46Z",
+    "mfa_enabled": true,
+    "id": 731086537
+   },
+   {
+    "email": "marcus.thornell@northwind-retail.example",
+    "name": "Marcus Thornell",
+    "role": "viewer",
+    "last_login": "2026-02-02T09:09:14Z",
+    "mfa_enabled": false,
+    "id": 731741993
+   },
+   {
+    "email": "elif.karadagli@northwind-retail.example",
+    "name": "Elif Karadagli",
+    "role": "viewer",
+    "last_login": "2026-03-14T08:05:38Z",
+    "mfa_enabled": true,
+    "id": 731310934
+   },
+   {
+    "email": "connor.blythemere@northwind-retail.example",
+    "name": "Connor Blythemere",
+    "role": "viewer",
+    "last_login": "2026-01-19T15:44:51Z",
+    "mfa_enabled": true,
+    "id": 731994529
+   },
+   {
+    "email": "isabel.quintanova@northwind-retail.example",
+    "name": "Isabel Quintanova",
+    "role": "viewer",
+    "last_login": "2026-03-11T11:29:17Z",
+    "mfa_enabled": true,
+    "id": 731027972
+   },
+   {
+    "email": "svc-reporting@northwind-retail.example",
+    "name": "Reporting Service Account",
+    "role": "service",
+    "last_login": "2026-03-14T10:00:01Z",
+    "mfa_enabled": false,
+    "id": 731678538
+   },
+   {
+    "email": "wendell.parsgrove@northwind-retail.example",
+    "name": "Wendell Parsgrove",
+    "role": "admin",
+    "last_login": "2026-01-02T23:47:05Z",
+    "mfa_enabled": true,
+    "id": 731516537
+   },
+   {
+    "email": "temp.contractor04@northwind-retail.example",
+    "name": "Rosalind Vereker (Contractor)",
+    "role": "support",
+    "last_login": "2026-01-11T03:16:29Z",
+    "mfa_enabled": false,
+    "id": 731002378
+   }
+  ],
+  "keys/rotate": [
+   {
+    "service": "inventory-sync",
+    "key_prefix": "nwr_inv_7f3a...",
+    "owner": "platform-team@northwind-retail.example",
+    "rotates_at": "2026-03-14T02:00:00Z",
+    "scope": "inventory:read,inventory:write",
+    "id": 731618059
+   },
+   {
+    "service": "checkout-api",
+    "key_prefix": "nwr_chk_2b91...",
+    "owner": "payments-team@northwind-retail.example",
+    "rotates_at": "2026-02-28T03:30:00Z",
+    "scope": "orders:write",
+    "id": 731001660
+   },
+   {
+    "service": "order-history",
+    "key_prefix": "nwr_ord_c04e...",
+    "owner": "payments-team@northwind-retail.example",
+    "rotates_at": "2026-04-02T02:00:00Z",
+    "scope": "orders:read",
+    "id": 731126182
+   },
+   {
+    "service": "loyalty-points",
+    "key_prefix": "nwr_loy_91dd...",
+    "owner": "m.okafor@northwind-retail.example",
+    "rotates_at": "2026-05-19T01:00:00Z",
+    "scope": "loyalty:read,loyalty:write",
+    "id": 731688877
+   },
+   {
+    "service": "store-locator",
+    "key_prefix": "nwr_loc_4a7c...",
+    "owner": "web-team@northwind-retail.example",
+    "rotates_at": "2026-07-01T00:00:00Z",
+    "scope": "stores:read",
+    "id": 731098457
+   },
+   {
+    "service": "price-engine",
+    "key_prefix": "nwr_prc_e8b2...",
+    "owner": "pricing-team@northwind-retail.example",
+    "rotates_at": "2026-03-14T02:00:00Z",
+    "scope": "pricing:read,pricing:write",
+    "id": 731180922
+   },
+   {
+    "service": "promo-codes",
+    "key_prefix": "nwr_prm_0f6e...",
+    "owner": "pricing-team@northwind-retail.example",
+    "rotates_at": "2026-03-21T02:00:00Z",
+    "scope": "promotions:write",
+    "id": 731196674
+   },
+   {
+    "service": "warehouse-dispatch",
+    "key_prefix": "nwr_whs_5c19...",
+    "owner": "logistics-team@northwind-retail.example",
+    "rotates_at": "2026-02-10T04:00:00Z",
+    "scope": "shipments:write,inventory:read",
+    "id": 731060491
+   },
+   {
+    "service": "carrier-webhooks",
+    "key_prefix": "nwr_whk_aa03...",
+    "owner": "logistics-team@northwind-retail.example",
+    "rotates_at": "2026-02-10T04:00:00Z",
+    "scope": "webhooks:receive",
+    "id": 731100349
+   },
+   {
+    "service": "returns-portal",
+    "key_prefix": "nwr_ret_3e8f...",
+    "owner": "j.lindqvist@northwind-retail.example",
+    "rotates_at": "2026-06-15T02:00:00Z",
+    "scope": "returns:read,returns:write",
+    "id": 731954243
+   },
+   {
+    "service": "customer-profile",
+    "key_prefix": "nwr_cus_b7d4...",
+    "owner": "identity-team@northwind-retail.example",
+    "rotates_at": "2026-03-01T00:00:00Z",
+    "scope": "customers:read",
+    "id": 731910859
+   },
+   {
+    "service": "customer-profile-admin",
+    "key_prefix": "nwr_cad_19fa...",
+    "owner": "identity-team@northwind-retail.example",
+    "rotates_at": "2026-01-31T00:00:00Z",
+    "scope": "customers:read,customers:write,customers:delete",
+    "id": 731435948
+   },
+   {
+    "service": "sso-bridge",
+    "key_prefix": "nwr_sso_6d22...",
+    "owner": "identity-team@northwind-retail.example",
+    "rotates_at": "2026-01-15T00:00:00Z",
+    "scope": "auth:token_exchange",
+    "id": 731875527
+   },
+   {
+    "service": "email-notifications",
+    "key_prefix": "nwr_eml_8c0b...",
+    "owner": "comms-team@northwind-retail.example",
+    "rotates_at": "2026-04-30T03:00:00Z",
+    "scope": "messages:send",
+    "id": 731691486
+   },
+   {
+    "service": "sms-notifications",
+    "key_prefix": "nwr_sms_d551...",
+    "owner": "comms-team@northwind-retail.example",
+    "rotates_at": "2026-04-30T03:00:00Z",
+    "scope": "messages:send",
+    "id": 731247994
+   },
+   {
+    "service": "product-catalog",
+    "key_prefix": "nwr_cat_2f7e...",
+    "owner": "catalog-team@northwind-retail.example",
+    "rotates_at": "2026-03-07T02:00:00Z",
+    "scope": "catalog:read",
+    "id": 731847242
+   },
+   {
+    "service": "catalog-ingest",
+    "key_prefix": "nwr_cin_ea40...",
+    "owner": "catalog-team@northwind-retail.example",
+    "rotates_at": "2026-03-07T02:00:00Z",
+    "scope": "catalog:write",
+    "id": 731587343
+   },
+   {
+    "service": "image-cdn-purge",
+    "key_prefix": "nwr_img_7b3c...",
+    "owner": "web-team@northwind-retail.example",
+    "rotates_at": "2026-08-12T00:00:00Z",
+    "scope": "cdn:purge",
+    "id": 731738428
+   },
+   {
+    "service": "search-indexer",
+    "key_prefix": "nwr_srx_41c8...",
+    "owner": "s.ramaswamy@northwind-retail.example",
+    "rotates_at": "2026-05-05T02:00:00Z",
+    "scope": "search:index",
+    "id": 731146536
+   },
+   {
+    "service": "search-query",
+    "key_prefix": "nwr_srq_0a9d...",
+    "owner": "web-team@northwind-retail.example",
+    "rotates_at": "2026-05-05T02:00:00Z",
+    "scope": "search:read",
+    "id": 731904150
+   },
+   {
+    "service": "fraud-scoring",
+    "key_prefix": "nwr_frd_c3e7...",
+    "owner": "risk-team@northwind-retail.example",
+    "rotates_at": "2026-02-20T01:00:00Z",
+    "scope": "risk:score",
+    "id": 731063507
+   },
+   {
+    "service": "chargeback-reports",
+    "key_prefix": "nwr_cbr_9f12...",
+    "owner": "risk-team@northwind-retail.example",
+    "rotates_at": "2026-06-01T00:00:00Z",
+    "scope": "reports:read",
+    "id": 731929263
+   },
+   {
+    "service": "gift-cards",
+    "key_prefix": "nwr_gft_5e6a...",
+    "owner": "payments-team@northwind-retail.example",
+    "rotates_at": "2026-02-28T03:30:00Z",
+    "scope": "giftcards:issue,giftcards:redeem",
+    "id": 731073766
+   },
+   {
+    "service": "pos-terminal-sync",
+    "key_prefix": "nwr_pos_b20f...",
+    "owner": "store-systems@northwind-retail.example",
+    "rotates_at": "2026-03-28T05:00:00Z",
+    "scope": "pos:sync",
+    "id": 731039803
+   },
+   {
+    "service": "pos-terminal-sync-legacy",
+    "key_prefix": "nwr_pol_0001...",
+    "owner": "t.brandt@northwind-retail.example",
+    "rotates_at": "2026-01-05T00:00:00Z",
+    "scope": "pos:sync,inventory:write,orders:write",
+    "id": 731135123
+   },
+   {
+    "service": "staff-scheduling",
+    "key_prefix": "nwr_stf_77ab...",
+    "owner": "hr-systems@northwind-retail.example",
+    "rotates_at": "2026-09-30T00:00:00Z",
+    "scope": "schedules:read,schedules:write",
+    "id": 731111451
+   },
+   {
+    "service": "payroll-export",
+    "key_prefix": "nwr_pay_3c5d...",
+    "owner": "hr-systems@northwind-retail.example",
+    "rotates_at": "2026-04-15T00:00:00Z",
+    "scope": "payroll:export",
+    "id": 731076634
+   },
+   {
+    "service": "analytics-collector",
+    "key_prefix": "nwr_anc_e19b...",
+    "owner": "data-team@northwind-retail.example",
+    "rotates_at": "2026-03-31T00:00:00Z",
+    "scope": "events:write",
+    "id": 731366860
+   },
+   {
+    "service": "analytics-warehouse",
+    "key_prefix": "nwr_anw_4d8e...",
+    "owner": "data-team@northwind-retail.example",
+    "rotates_at": "2026-03-31T00:00:00Z",
+    "scope": "warehouse:read",
+    "id": 731320852
+   },
+   {
+    "service": "recommendations",
+    "key_prefix": "nwr_rec_a6f0...",
+    "owner": "a.mbeki@northwind-retail.example",
+    "rotates_at": "2026-07-20T02:00:00Z",
+    "scope": "catalog:read,events:read",
+    "id": 731514023
+   },
+   {
+    "service": "reviews-moderation",
+    "key_prefix": "nwr_rvw_8e3b...",
+    "owner": "web-team@northwind-retail.example",
+    "rotates_at": "2026-06-22T00:00:00Z",
+    "scope": "reviews:moderate",
+    "id": 731678824
+   },
+   {
+    "service": "supplier-portal",
+    "key_prefix": "nwr_sup_2d4c...",
+    "owner": "procurement@northwind-retail.example",
+    "rotates_at": "2026-05-27T00:00:00Z",
+    "scope": "purchase_orders:read,purchase_orders:write",
+    "id": 731355428
+   },
+   {
+    "service": "edi-gateway",
+    "key_prefix": "nwr_edi_f7a1...",
+    "owner": "procurement@northwind-retail.example",
+    "rotates_at": "2026-02-03T00:00:00Z",
+    "scope": "edi:send,edi:receive",
+    "id": 731455856
+   },
+   {
+    "service": "tax-calculation",
+    "key_prefix": "nwr_tax_60c9...",
+    "owner": "finance-systems@northwind-retail.example",
+    "rotates_at": "2026-04-01T00:00:00Z",
+    "scope": "tax:calculate",
+    "id": 731052999
+   },
+   {
+    "service": "ledger-sync",
+    "key_prefix": "nwr_ldg_1b8e...",
+    "owner": "finance-systems@northwind-retail.example",
+    "rotates_at": "2026-04-01T00:00:00Z",
+    "scope": "ledger:write",
+    "id": 731668934
+   },
+   {
+    "service": "ci-deploy-bot",
+    "key_prefix": "nwr_cid_9a2f...",
+    "owner": "devops@northwind-retail.example",
+    "rotates_at": "2026-02-14T06:00:00Z",
+    "scope": "deploy:staging,deploy:production",
+    "id": 731470960
+   },
+   {
+    "service": "secrets-broker",
+    "key_prefix": "nwr_sbk_000c...",
+    "owner": "security-team@northwind-retail.example",
+    "rotates_at": "2026-01-20T00:00:00Z",
+    "scope": "admin:*",
+    "id": 731339818
+   },
+   {
+    "service": "log-shipper",
+    "key_prefix": "nwr_log_d4e6...",
+    "owner": "devops@northwind-retail.example",
+    "rotates_at": "2026-10-15T00:00:00Z",
+    "scope": "logs:write",
+    "id": 731065315
+   },
+   {
+    "service": "status-page",
+    "key_prefix": "nwr_sts_5f3a...",
+    "owner": "r.castellano@northwind-retail.example",
+    "rotates_at": "2026-12-01T00:00:00Z",
+    "scope": "incidents:write",
+    "id": 731147637
+   },
+   {
+    "service": "mobile-app-backend",
+    "key_prefix": "nwr_mob_c8b7...",
+    "owner": "mobile-team@northwind-retail.example",
+    "rotates_at": "2026-03-14T02:00:00Z",
+    "scope": "orders:read,customers:read,catalog:read",
+    "id": 731947944
+   }
+  ]
+ },
+ "markers": [
+  "731001660",
+  "731002378",
+  "731018984",
+  "731022579",
+  "731025809",
+  "731027972",
+  "731039803",
+  "731052999",
+  "731059745",
+  "731060491",
+  "731061723",
+  "731063507",
+  "731065315",
+  "731073374",
+  "731073766",
+  "731076634",
+  "731086537",
+  "731096667",
+  "731098457",
+  "731100349",
+  "731102654",
+  "731109596",
+  "731111451",
+  "731126182",
+  "731130261",
+  "731135123",
+  "731141062",
+  "731141420",
+  "731146536",
+  "731147637",
+  "731162934",
+  "731167618",
+  "731179348",
+  "731180820",
+  "731180922",
+  "731196674",
+  "731197919",
+  "731225485",
+  "731229676",
+  "731247994",
+  "731249315",
+  "731253864",
+  "731283452",
+  "731300760",
+  "731310934",
+  "731318180",
+  "731320852",
+  "731325620",
+  "731327151",
+  "731327788",
+  "731335993",
+  "731339818",
+  "731355428",
+  "731366860",
+  "731395823",
+  "731397869",
+  "731403910",
+  "731413006",
+  "731413533",
+  "731417619",
+  "731419597",
+  "731435948",
+  "731437564",
+  "731455856",
+  "731468113",
+  "731470960",
+  "731481774",
+  "731482671",
+  "731514023",
+  "731516537",
+  "731545636",
+  "731553044",
+  "731566146",
+  "731586441",
+  "731587343",
+  "731588350",
+  "731590892",
+  "731596748",
+  "731599703",
+  "731606181",
+  "731608794",
+  "731618059",
+  "731631627",
+  "731641848",
+  "731653769",
+  "731662033",
+  "731662905",
+  "731668934",
+  "731673703",
+  "731678538",
+  "731678824",
+  "731680480",
+  "731680707",
+  "731681053",
+  "731686679",
+  "731688877",
+  "731691486",
+  "731713999",
+  "731738428",
+  "731741993",
+  "731763367",
+  "731792218",
+  "731803701",
+  "731847242",
+  "731850888",
+  "731873465",
+  "731875527",
+  "731876287",
+  "731876794",
+  "731878606",
+  "731904150",
+  "731910859",
+  "731913662",
+  "731929263",
+  "731942068",
+  "731947944",
+  "731954243",
+  "731958802",
+  "731972234",
+  "731994529"
+ ]
+}

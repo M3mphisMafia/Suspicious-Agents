@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aa-ai"
+version = "1.0.0"
+description = "Undertow Security: detect, deceive and drain autonomous AI attack agents (ARTEX-class)"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "cfn-lint>=1", "cryptography>=42"]
+aws = ["boto3>=1.35"]
+
+[project.scripts]
+aa-ai = "aa_ai.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["aa_ai*", "store*", "adapters*", "redteam*", "evals*"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+markers = ["cell_edge: run with the default edge policy (padded cell)"]

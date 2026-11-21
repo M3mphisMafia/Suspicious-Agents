@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Northwind store - the app Undertow protects. Serverless, no internet egress, fake data only.
+
+Parameters:
+  CodeBucket: { Type: String }
+  CodeKey:
+    Type: String
+    Description: Content-hashed zip from infra/build_scorer.sh (aa_ai + demo + store).
+  DecoyPrefix:
+    Type: String
+    Default: /api/v1/internal/ops
+  StoreName:
+    Type: String
+    Default: Northwind Supply
+  AdminEmail:
+    Type: String
+    Default: admin@northwind.example
+    Description: The store's own admin account (seeded once). Not a real inbox.
+  DynamoPrefixListId:
+    Type: String
+    Description: The region's DynamoDB prefix list (the Package stage looks it up), so the app can reach the gateway endpoint while the SG stays closed to everything else.
+
+Resources:
+  # ---------- containment: the app has no route to the internet ----------
+  AppVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.43.0.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: undertow-store-no-egress }]
+
+  AppSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref AppVpc
+      CidrBlock: 10.43.0.0/26
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+
+  AppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref AppVpc
+
+  AppSubnetRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet
+      RouteTableId: !Ref AppRouteTable
+
+  AppSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: store Lambda - HTTPS to the VPC endpoints only
+      VpcId: !Ref AppVpc
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 10.43.0.0/24 }   # Secrets Manager interface endpoint
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, DestinationPrefixListId: !Ref DynamoPrefixListId }  # DynamoDB gateway endpoint
+
+  EndpointSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Secrets Manager endpoint - HTTPS from the app only
+      VpcId: !Ref AppVpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, SourceSecurityGroupId: !Ref AppSg }
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 127.0.0.1/32 }
+
+  SecretsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref AppVpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref AppSubnet]
+      SecurityGroupIds: [!Ref EndpointSg]
+
+  DynamoEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref AppVpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref AppRouteTable]
+
+  # ---------- data and secrets ----------
+  StoreTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      TimeToLiveSpecification: { AttributeName: exp, Enabled: true }
+      SSESpecification: { SSEEnabled: true }
+
+  OriginSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: X-Origin-Verify shared by CloudFront and the store
+      GenerateSecretString: { PasswordLength: 48, ExcludePunctuation: true }
+
+  StoreSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Session-signing key for the store
+      GenerateSecretString: { PasswordLength: 48, ExcludePunctuation: true }
+
+  AdminPassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Seeded store-admin password (fake store)
+      GenerateSecretString: { PasswordLength: 20, ExcludePunctuation: true }
+
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+      Policies:
+        - PolicyName: store
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:Query,
+                         dynamodb:Scan, dynamodb:BatchWriteItem]
+                Resource: !GetAtt StoreTable.Arn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref OriginSecret, !Ref StoreSecret, !Ref AdminPassword]
+
+  App:
+    Type: AWS::Lambda::Function
+    DependsOn: [SecretsEndpoint, DynamoEndpoint]
+    Properties:
+      Runtime: python3.14
+      Handler: store.app.handler
+      Role: !GetAtt AppRole.Arn
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      MemorySize: 1024
+      Timeout: 60
+      ReservedConcurrentExecutions: 60
+      VpcConfig:
+        SubnetIds: [!Ref AppSubnet]
+        SecurityGroupIds: [!Ref AppSg]
+      Environment:
+        Variables:
+          STORE_TABLE: !Ref StoreTable
+          STORE_SECRET_ARN: !Ref StoreSecret
+          ORIGIN_SECRET_ARN: !Ref OriginSecret
+          ADMIN_EMAIL: !Ref AdminEmail
+          ADMIN_PASSWORD_ARN: !Ref AdminPassword
+          DECOY_PREFIX: !Ref DecoyPrefix
+          STORE_NAME: !Ref StoreName
+          TARPIT_MAX: "1.5"
+
+  AppLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${App}"
+      RetentionInDays: 30
+
+  AppUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt App.Arn
+      AuthType: NONE
+
+  AppUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref App
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  AppUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref App
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  OriginDomainName:
+    Value: !Select [2, !Split ["/", !GetAtt AppUrl.FunctionUrl]]
+  OriginSecretArn:
+    Value: !Ref OriginSecret
+  AppLogGroupName:
+    Value: !Ref AppLogs
+  StoreTableName:
+    Value: !Ref StoreTable
+  AdminEmail:
+    Value: !Ref AdminEmail
+  AdminPasswordArn:
+    Value: !Ref AdminPassword

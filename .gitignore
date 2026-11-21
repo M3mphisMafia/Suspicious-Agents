@@ -1,0 +1,11 @@
+.claude/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+decoy-site/
+dist/
+CANARIES.txt
+* 2.*
+*.egg-info/
+build/

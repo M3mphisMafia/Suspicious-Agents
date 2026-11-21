@@ -1,0 +1,5 @@
+[
+  {"name": "billing", "origin": "abc123.lambda-url.us-east-1.on.aws"},
+  {"name": "partner-api", "origin": "api.internal.example.com", "domain": "partners.example.com",
+   "cert": "arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-0000-0000-000000000000"}
+]

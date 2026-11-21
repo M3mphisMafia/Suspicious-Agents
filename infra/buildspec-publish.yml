@@ -1,0 +1,11 @@
+# Publish stage: dashboard pages, decoys, bait files, extra apps.
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.14
+    commands:
+      - pip install -q boto3
+  build:
+    commands:
+      - bash infra/publish.sh

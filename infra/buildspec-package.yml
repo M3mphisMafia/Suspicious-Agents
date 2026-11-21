@@ -1,0 +1,15 @@
+# Package stage: code to S3, each stack's parameters to cfn/*.json. No tests, no deploys:
+# CloudFormation actions in the pipeline deploy the stacks.
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.14
+    commands:
+      - pip install -q boto3
+  build:
+    commands:
+      - bash infra/package.sh
+artifacts:
+  files: ["**/*"]
+  exclude-paths: ["dist/**/*", ".git/**/*"]

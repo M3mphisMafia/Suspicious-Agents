@@ -1,0 +1,1732 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Undertow edge shield - CloudFront + WAF tarpit responses + S3 decoy surface. Deploy in us-east-1.
+
+Parameters:
+  OriginDomainName:
+    Type: String
+    Description: The protected app origin (ALB or API hostname).
+  DecoyPrefix:
+    Type: String
+    Default: /api/v1/internal/ops
+    AllowedPattern: "^/[A-Za-z0-9/_-]+$"
+  DomainName:
+    Type: String
+    Default: ""
+    Description: Public hostname (e.g. app.example.com). Empty = cloudfront.net only, not for production.
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate in us-east-1 covering DomainName.
+  OriginVerifySecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Sent to the origin as X-Origin-Verify (32+ chars). Require it at the ALB listener. Or use OriginVerifySecretArn.
+  OriginVerifySecretArn:
+    Type: String
+    Default: ""
+    Description: Secrets Manager ARN holding the X-Origin-Verify value. Takes precedence over OriginVerifySecret.
+  OriginForwardsHost:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Forward the viewer Host header. "false" for origins that must see their own hostname (Lambda function URLs, API Gateway).
+  AuthRatePer60s:
+    Type: Number
+    Default: 100
+    MinValue: 10
+    Description: Per-IP requests to auth routes per minute. Sized for offices behind one NAT; failed-login pressure is handled in-app.
+  ScorerCodeBucket:
+    Type: String
+    Default: ""
+    Description: S3 bucket (us-east-1) holding the scorer zip. Empty = no scorer.
+  ScorerCodeKey:
+    Type: String
+    Default: ""
+    Description: Content-hashed key from infra/build_scorer.sh, so a new build forces a code update.
+  ScorerMode:
+    Type: String
+    Default: observe
+    AllowedValues: [observe, enforce]
+  AllowCidrs:
+    Type: String
+    Default: ""
+    Description: Comma-separated CIDRs never flagged (office, monitoring, partners).
+  AdminCidrs:
+    Type: String
+    Default: 127.0.0.1/32
+    AllowedPattern: "^[0-9./,]+$"
+    Description: Comma-separated IPv4 CIDRs that may open /_undertow/ (the dashboard). Default lets nobody in.
+  FlagJa4:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Also block JA4 fingerprints of decoy-confirmed actors. Shared by every client on that TLS stack.
+  ChallengeSensitive:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Silent-Challenge every unauthenticated write or login. Needs the AWS WAF JS integration in browser apps (SPAs), or their API calls get the challenge too.
+  JudgeLayerKey:
+    Type: String
+    Default: ""
+    Description: Content-hashed zip of the judge's model SDK (infra/build_judge_layer.sh). Empty = no LLM judge.
+  JudgeModel:
+    Type: String
+    Default: ""
+    Description: Bedrock model ID the judge calls. Empty = Anthropic Claude Opus 5.5 (aa_ai.DEFAULT_MODEL).
+  AppLogGroupName:
+    Type: String
+    Default: ""
+    Description: Log group of the app running aa_ai.Shield; its "undertow_move" lines feed the dashboard's board.
+  RetryAfter:
+    Type: String
+    Default: "9"
+    AllowedPattern: "^[1-9][0-9]?$"
+    Description: Retry-After seconds on edge 429s. 9 or less pauses ARTEX's own throttle for the whole host.
+  FloodRatePer5Min:
+    Type: Number
+    Default: 2000
+    MinValue: 100
+    Description: Per-IP requests per 5 minutes before the edge blocks it (volumetric flood protection). A browser uses a handful; a flood from one source is cut off here.
+  GeoBlockCountries:
+    Type: String
+    Default: ""
+    AllowedPattern: "^([A-Z]{2}(,[A-Z]{2})*)?$"
+    Description: Comma-separated ISO country codes blocked at the edge (403). Set from the dashboard; deploy keeps it.
+  AsnBlock:
+    Type: String
+    Default: ""
+    AllowedPattern: "^([0-9]+(,[0-9]+)*)?$"
+    Description: Comma-separated network ASNs blocked at the edge (403). Set from the dashboard; deploy keeps it.
+  AdminEmail:
+    Type: String
+    Default: ""
+    Description: First dashboard admin. Cognito emails them a one-time temporary password.
+  LoginUrl:
+    Type: String
+    Default: ""
+    Description: Dashboard sign-in URL put in invite emails (the Package stage passes the CloudFront address).
+  RestrictDashboard:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Also limit the dashboard to AdminCidrs. Sign-in (Cognito) already protects data and actions.
+  CellTitle:
+    Type: String
+    Default: Customer portal
+    Description: Page title of the padded cell's fake app; make it look like the app it stands in for.
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Email for alerts (SNS). AWS sends one confirmation link; it expires after about 3 days.
+  CellNotice:
+    Type: String
+    Default: body
+    AllowedValues: [body, header]
+    Description: Where the cell's truthful stop notice goes. body = JSON bodies and a header; header = header only (looks more like the real app).
+  DatacenterRangesUrl:
+    Type: String
+    Default: "https://ip-ranges.amazonaws.com/ip-ranges.json"
+    Description: Cloud/datacenter CIDR list (AWS ip-ranges.json format, a JSON list, or an s3:// object read via VPC endpoint). Empty disables the fetch. Reputation-only, a secondary signal.
+  DatacenterCidrs:
+    Type: String
+    Default: ""
+    Description: Extra datacenter/hosting CIDRs (comma-separated), merged with the fetched list. Needs no egress.
+  TorExitUrl:
+    Type: String
+    Default: "https://check.torproject.org/torbulkexitlist"
+    Description: Tor exit-node list URL (one IP per line). Empty disables it. Reputation-only, a secondary signal.
+  GreyNoiseKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: GreyNoise community API key. Empty = the greynoise feed stays off even if the policy enables it.
+  AbuseIpdbKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: AbuseIPDB API key. Empty = the abuseipdb feed stays off even if the policy enables it.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    Description: Monthly budget for AWS WAF and CloudFront, account-wide. Emails AlertEmail at 80% actual and 100% forecast.
+
+Conditions:
+  HasScorer: !And [!Not [!Equals [!Ref ScorerCodeBucket, ""]], !Not [!Equals [!Ref ScorerCodeKey, ""]]]
+  HasAppLogs: !And [!Condition HasScorer, !Not [!Equals [!Ref AppLogGroupName, ""]]]
+  ChallengeAll: !Equals [!Ref ChallengeSensitive, "true"]
+  HasJudge: !And [!Condition HasScorer, !Not [!Equals [!Ref JudgeLayerKey, ""]]]
+  HasGeo: !Not [!Equals [!Ref GeoBlockCountries, ""]]
+  HasAsn: !Not [!Equals [!Ref AsnBlock, ""]]
+  HasAlertEmail: !And [!Condition HasScorer, !Not [!Equals [!Ref AlertEmail, ""]]]
+  HasBudgetEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  HasAdminEmail: !And [!Condition HasScorer, !Not [!Equals [!Ref AdminEmail, ""]]]
+  HasLoginUrl: !Not [!Equals [!Ref LoginUrl, ""]]
+  RestrictDash: !Equals [!Ref RestrictDashboard, "true"]
+  HasDomain: !And [!Not [!Equals [!Ref DomainName, ""]], !Not [!Equals [!Ref AcmCertificateArn, ""]]]
+  HasSecretArn: !Not [!Equals [!Ref OriginVerifySecretArn, ""]]
+  ForwardHost: !Equals [!Ref OriginForwardsHost, "true"]
+
+Rules:
+  OriginSecretRequired:
+    Assertions:
+      - Assert: !Or
+          - !Not [!Equals [!Ref OriginVerifySecretArn, ""]]
+          - !Not [!Equals [!Ref OriginVerifySecret, ""]]
+        AssertDescription: Set OriginVerifySecretArn or OriginVerifySecret; without one the origin can be reached directly.
+
+Resources:
+  AdminIps:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-admin-ips
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: !Split [",", !Ref AdminCidrs]
+
+  AllowedIps:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-allowed-ips
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: []
+
+  AllowedIps6:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-allowed-ips6
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV6
+      Addresses: []
+
+  SuspectIps:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-suspect-ips
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: []
+
+  ChallengeIps:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-challenge-ips
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: []
+
+  FlaggedIps:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-flagged-ips
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: []
+
+  FlaggedIps6:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: aa-ai-flagged-ips6
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV6
+      Addresses: []
+
+  FlaggedJa4:
+    Type: AWS::WAFv2::RegexPatternSet
+    Properties:
+      Name: aa-ai-flagged-ja4
+      Scope: CLOUDFRONT
+      RegularExpressionList: ["^aa-ai-placeholder-never-matches$"]
+
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [W1030] } }
+    Properties:
+      Name: aa-ai-edge-shield
+      Scope: CLOUDFRONT
+      DefaultAction: { Allow: {} }
+      VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai }
+      CustomResponseBodies:
+        generic:
+          ContentType: APPLICATION_JSON
+          Content: '{"error":"request could not be processed"}'
+      Rules:
+        - Name: dashboard-admin-allow
+          Priority: 0
+          Action: { Allow: {} }
+          Statement:
+            AndStatement:
+              Statements:
+                - ByteMatchStatement:
+                    FieldToMatch: { UriPath: {} }
+                    PositionalConstraint: STARTS_WITH
+                    SearchString: /_undertow/
+                    TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                - IPSetReferenceStatement: { Arn: !GetAtt AdminIps.Arn }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-dashboard-admin }
+        - !If
+          - RestrictDash
+          - Name: dashboard-admin-only
+            Priority: 1
+            Action:
+              Block:
+                CustomResponse: { ResponseCode: 404 }
+            Statement:
+              ByteMatchStatement:
+                FieldToMatch: { UriPath: {} }
+                PositionalConstraint: STARTS_WITH
+                SearchString: /_undertow/
+                TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+            VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-dashboard }
+          - !Ref AWS::NoValue
+        - Name: allow-list
+          Priority: 2
+          Action:
+            Allow:
+              CustomRequestHandling:
+                InsertHeaders:
+                  - Name: undertow-allow
+                    Value: !If [HasSecretArn, !Sub "{{resolve:secretsmanager:${OriginVerifySecretArn}:SecretString}}", !Ref OriginVerifySecret]
+          Statement:
+            OrStatement:
+              Statements:
+                - IPSetReferenceStatement: { Arn: !GetAtt AllowedIps.Arn }
+                - IPSetReferenceStatement: { Arn: !GetAtt AllowedIps6.Arn }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-allow }
+        - Name: challenge
+          Priority: 3
+          Action:
+            Count:
+              CustomRequestHandling:
+                InsertHeaders:
+                  - Name: undertow-challenge
+                    Value: !If [HasSecretArn, !Sub "{{resolve:secretsmanager:${OriginVerifySecretArn}:SecretString}}", !Ref OriginVerifySecret]
+          Statement: { IPSetReferenceStatement: { Arn: !GetAtt ChallengeIps.Arn } }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-challenge }
+        - Name: decoy-touch
+          Priority: 4
+          Action: { Count: {} }
+          RuleLabels: [{ Name: "aa-ai:decoy" }]
+          Statement:
+            ByteMatchStatement:
+              FieldToMatch: { UriPath: {} }
+              PositionalConstraint: STARTS_WITH
+              SearchString: !Ref DecoyPrefix
+              TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-decoy }
+        - Name: recon-map
+          Priority: 5
+          Action: { Count: {} }
+          RuleLabels: [{ Name: "aa-ai:recon" }]
+          Statement:
+            RegexMatchStatement:
+              FieldToMatch: { UriPath: {} }
+              RegexString: "(?i)(openapi|swagger|api-docs|\\.js\\.map$|/config\\.json$|runtime-config|/\\.env$)"
+              TextTransformations: [{ Priority: 0, Type: NONE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-recon }
+        - Name: tool-ua
+          Priority: 6
+          Action: { Block: { CustomResponse: { ResponseCode: 403, CustomResponseBodyKey: generic } } }
+          RuleLabels: [{ Name: "aa-ai:tool" }]
+          Statement:
+            RegexMatchStatement:
+              FieldToMatch: { SingleHeader: { Name: user-agent } }
+              RegexString: "(^norma/[0-9]|^artex-(enrich|egress-probe|selfupdate)|spa-api-recon)"
+              TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-tool-ua }
+        - Name: spoof-label
+          Priority: 7
+          Action: { Count: {} }
+          RuleLabels: [{ Name: "aa-ai:spoof" }]
+          Statement:
+            AndStatement:
+              Statements:
+                - RegexMatchStatement:
+                    FieldToMatch: { SingleHeader: { Name: user-agent } }
+                    RegexString: "^mozilla/5\\.0 .*(chrome|firefox|safari|edg)/[0-9]"
+                    TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                - NotStatement:
+                    Statement:
+                      SizeConstraintStatement:
+                        FieldToMatch: { SingleHeader: { Name: sec-fetch-mode } }
+                        ComparisonOperator: GT
+                        Size: 0
+                        TextTransformations: [{ Priority: 0, Type: NONE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-spoof }
+        - Name: spoof-rate
+          Priority: 8
+          Action: { Challenge: {} }
+          Statement:
+            RateBasedStatement:
+              Limit: 60
+              EvaluationWindowSec: 60
+              AggregateKeyType: CUSTOM_KEYS
+              CustomKeys: [{ JA4Fingerprint: { FallbackBehavior: MATCH } }]
+              ScopeDownStatement: { LabelMatchStatement: { Scope: LABEL, Key: "aa-ai:spoof" } }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-spoof-rate }
+        - Name: suspect-challenge
+          Priority: 9
+          Action: { Challenge: {} }
+          Statement: { IPSetReferenceStatement: { Arn: !GetAtt SuspectIps.Arn } }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-suspect-challenge }
+        - !If
+          - ChallengeAll
+          - Name: sensitive-challenge
+            Priority: 10
+            Action: { Challenge: {} }
+            Statement:
+              AndStatement:
+                Statements:
+                  - OrStatement:
+                      Statements:
+                        - RegexMatchStatement:
+                            FieldToMatch: { Method: {} }
+                            RegexString: "^(post|put|patch|delete)$"
+                            TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+                        - LabelMatchStatement: { Scope: LABEL, Key: "aa-ai:recon" }
+                  - NotStatement:
+                      Statement:
+                        SizeConstraintStatement:
+                          FieldToMatch: { SingleHeader: { Name: authorization } }
+                          ComparisonOperator: GT
+                          Size: 0
+                          TextTransformations: [{ Priority: 0, Type: NONE }]
+            VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-sensitive-challenge }
+          - !Ref AWS::NoValue
+        - Name: flagged-ip
+          Priority: 11
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+                CustomResponseBodyKey: generic
+                ResponseHeaders: [{ Name: retry-after, Value: !Ref RetryAfter }]
+          Statement:
+            OrStatement:
+              Statements:
+                - IPSetReferenceStatement: { Arn: !GetAtt FlaggedIps.Arn }
+                - IPSetReferenceStatement: { Arn: !GetAtt FlaggedIps6.Arn }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-flagged-ip }
+        - Name: flagged-ja4
+          Priority: 12
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+                CustomResponseBodyKey: generic
+                ResponseHeaders: [{ Name: retry-after, Value: !Ref RetryAfter }]
+          Statement:
+            RegexPatternSetReferenceStatement:
+              Arn: !GetAtt FlaggedJa4.Arn
+              FieldToMatch: { JA4Fingerprint: { FallbackBehavior: NO_MATCH } }
+              TextTransformations: [{ Priority: 0, Type: NONE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-flagged-ja4 }
+        - Name: auth-host-wide-rate
+          Priority: 13
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+                CustomResponseBodyKey: generic
+                ResponseHeaders: [{ Name: retry-after, Value: !Ref RetryAfter }]
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref AuthRatePer60s
+              EvaluationWindowSec: 60
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                RegexMatchStatement:
+                  FieldToMatch: { UriPath: {} }
+                  RegexString: "(^|/)(login|signin|sign-in|logon|auth|oauth|oauth2|authorize|token|saml|saml2|sso|password|reset|recover|forgot|signup|sign-up|register|verify|mfa|otp|2fa)([-_.][a-z0-9_.-]*)?(/|$)"
+                  TextTransformations: [{ Priority: 0, Type: LOWERCASE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-auth-rate }
+        - !If
+          - HasGeo
+          - Name: geo-block
+            Priority: 14
+            Action: { Block: { CustomResponse: { ResponseCode: 403, CustomResponseBodyKey: generic } } }
+            Statement: { GeoMatchStatement: { CountryCodes: !Split [",", !Ref GeoBlockCountries] } }
+            VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-geo-block }
+          - !Ref AWS::NoValue
+        - !If
+          - HasAsn
+          - Name: asn-block
+            Priority: 15
+            Action: { Block: { CustomResponse: { ResponseCode: 403, CustomResponseBodyKey: generic } } }
+            Statement: { AsnMatchStatement: { AsnList: !Split [",", !Ref AsnBlock] } }
+            VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-asn-block }
+          - !Ref AWS::NoValue
+        - Name: ip-flood-rate
+          Priority: 16
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+                CustomResponseBodyKey: generic
+                ResponseHeaders: [{ Name: retry-after, Value: !Ref RetryAfter }]
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref FloodRatePer5Min
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-ip-flood }
+        # AWS anti-DDoS rules: learn normal traffic; in a layer-7 flood, silently challenge suspect
+        # clients and block the worst. Requests they block are not billed as WAF requests.
+        # API, dashboard and asset paths are exempt from the challenge (they cannot run it).
+        - Name: aws-anti-ddos
+          Priority: 17
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAntiDDoSRuleSet
+              ManagedRuleGroupConfigs:
+                - AWSManagedRulesAntiDDoSRuleSet:
+                    SensitivityToBlock: LOW
+                    ClientSideActionConfig:
+                      Challenge:
+                        UsageOfAction: ENABLED
+                        Sensitivity: HIGH
+                        ExemptUriRegularExpressions:
+                          - RegexString: '\/api\/|\/_undertow\/|\.(acc|avi|css|gif|ico|jpe?g|js|json|mp[34]|ogg|otf|pdf|png|svg|tiff?|ttf|webm|webp|woff2?|xml)$'
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-anti-ddos }
+        # IPs AWS threat intelligence has seen attacking, scanning or in DDoS botnets.
+        - Name: aws-ip-reputation
+          Priority: 18
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesAmazonIpReputationList }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-ip-reputation }
+        # Priority 19 is reserved: flood mode's "flood-pattern" rule, added and removed live by the scorer.
+        # Known exploit payloads (Log4j, Java deserialization and similar): blocked. The scorer still
+        # stores these requests: they are attack evidence.
+        - Name: aws-known-bad-inputs
+          Priority: 20
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesKnownBadInputsRuleSet }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-known-bad-inputs }
+        # Count only (labels in the WAF logs): Undertow lets agents in to deceive and drain them, and
+        # blocking on a generic signature this early would hide their intent.
+        - Name: aws-common
+          Priority: 21
+          OverrideAction: { Count: {} }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesCommonRuleSet }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-common }
+        - Name: aws-sqli
+          Priority: 22
+          OverrideAction: { Count: {} }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesSQLiRuleSet }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-sqli }
+        # Count only: source reputation is a style hint for Undertow, never a gate.
+        - Name: aws-anonymous-ip
+          Priority: 23
+          OverrideAction: { Count: {} }
+          Statement:
+            ManagedRuleGroupStatement: { VendorName: AWS, Name: AWSManagedRulesAnonymousIpList }
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-anonymous-ip }
+        # The lead form: 10 posts per IP per 5 minutes. Its Retry-After follows the dashboard control.
+        - Name: form-rate
+          Priority: 24
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+                CustomResponseBodyKey: generic
+                ResponseHeaders: [{ Name: retry-after, Value: !Ref RetryAfter }]
+          Statement:
+            RateBasedStatement:
+              Limit: 10
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                AndStatement:
+                  Statements:
+                    - ByteMatchStatement:
+                        SearchString: /api/lead
+                        FieldToMatch: { UriPath: {} }
+                        PositionalConstraint: EXACTLY
+                        TextTransformations: [{ Priority: 0, Type: NONE }]
+                    - ByteMatchStatement:
+                        SearchString: POST
+                        FieldToMatch: { Method: {} }
+                        PositionalConstraint: EXACTLY
+                        TextTransformations: [{ Priority: 0, Type: NONE }]
+          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: aa-ai-form-rate }
+
+  WafLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: aws-waf-logs-aa-ai
+      RetentionInDays: 90
+
+  WafLogging:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      ResourceArn: !GetAtt WebAcl.Arn
+      LogDestinationConfigs: [!GetAtt WafLogs.Arn]
+
+  DecoyBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }]
+
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }]
+
+  DecoyOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: aa-ai-decoy
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ForwardFingerprints:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: aa-ai-forward-fingerprints
+        CookiesConfig: { CookieBehavior: all }
+        QueryStringsConfig: { QueryStringBehavior: all }
+        HeadersConfig: !If
+          - ForwardHost
+          - HeaderBehavior: allViewerAndWhitelistCloudFront
+            Headers: [CloudFront-Viewer-JA4-Fingerprint, CloudFront-Viewer-Address]
+          - HeaderBehavior: whitelist
+            Headers: [User-Agent, Content-Type, Accept, Authorization, Origin, Referer,
+                      CloudFront-Viewer-JA4-Fingerprint, CloudFront-Viewer-Address, x-amzn-waf-undertow-challenge,
+                      x-amzn-waf-undertow-allow]   # 10 is CloudFront's limit
+
+  AdminRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: aa-ai-admin-api
+        CookiesConfig: { CookieBehavior: none }
+        QueryStringsConfig: { QueryStringBehavior: none }
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers: [Authorization, Content-Type, CloudFront-Viewer-Address]
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        WebACLId: !GetAtt WebAcl.Arn
+        HttpVersion: http2and3
+        Aliases: !If [HasDomain, [!Ref DomainName], !Ref AWS::NoValue]
+        ViewerCertificate: !If
+          - HasDomain
+          - { AcmCertificateArn: !Ref AcmCertificateArn, SslSupportMethod: sni-only, MinimumProtocolVersion: TLSv1.2_2021 }
+          - { CloudFrontDefaultCertificate: true }
+        Origins:
+          - Id: app
+            DomainName: !Ref OriginDomainName
+            CustomOriginConfig: { OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2], OriginReadTimeout: 60 }
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: !If
+                  - HasSecretArn
+                  - !Sub "{{resolve:secretsmanager:${OriginVerifySecretArn}:SecretString}}"
+                  - !Ref OriginVerifySecret
+          - Id: decoy
+            DomainName: !GetAtt DecoyBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt DecoyOac.Id
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: dashboard
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt DecoyOac.Id
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - !If
+            - HasScorer
+            - Id: cell
+              DomainName: !Select [2, !Split ["/", !GetAtt CellUrl.FunctionUrl]]
+              CustomOriginConfig: { OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2], OriginReadTimeout: 30 }
+              OriginCustomHeaders:
+                - HeaderName: X-Origin-Verify
+                  HeaderValue: !If [HasSecretArn, !Sub "{{resolve:secretsmanager:${OriginVerifySecretArn}:SecretString}}", !Ref OriginVerifySecret]
+            - !Ref AWS::NoValue
+          - !If
+            - HasScorer
+            - Id: admin
+              DomainName: !Select [2, !Split ["/", !GetAtt HttpApi.ApiEndpoint]]
+              CustomOriginConfig: { OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2] }
+            - !Ref AWS::NoValue
+        DefaultCacheBehavior:
+          TargetOriginId: app
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: !Ref ForwardFingerprints
+          FunctionAssociations: !If
+            - HasScorer
+            - [{ EventType: viewer-request, FunctionARN: !GetAtt CellRouter.FunctionMetadata.FunctionARN }]
+            - !Ref AWS::NoValue
+        CacheBehaviors:
+          - PathPattern: !Sub "${DecoyPrefix}/t/*"
+            TargetOriginId: app
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: !Ref ForwardFingerprints
+            FunctionAssociations: !If
+              - HasScorer
+              - [{ EventType: viewer-request, FunctionARN: !GetAtt CellRouter.FunctionMetadata.FunctionARN }]
+              - !Ref AWS::NoValue
+          - PathPattern: /.env
+            TargetOriginId: decoy
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          - PathPattern: /config.json
+            TargetOriginId: decoy
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          - PathPattern: /.aws/*
+            TargetOriginId: decoy
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          - PathPattern: !Sub "${DecoyPrefix}/*"
+            TargetOriginId: decoy
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          - !If
+            - HasScorer
+            - PathPattern: /_undertow/api/*
+              TargetOriginId: admin
+              ViewerProtocolPolicy: https-only
+              AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+              CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+              OriginRequestPolicyId: !Ref AdminRequestPolicy
+            - !Ref AWS::NoValue
+          - PathPattern: /_undertow/*
+            TargetOriginId: dashboard
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${DashboardBucket.Arn}/_undertow/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+  DecoyBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DecoyBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${DecoyBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+  ScorerTable:
+    Type: AWS::DynamoDB::Table
+    Condition: HasScorer
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      TimeToLiveSpecification: { AttributeName: exp, Enabled: true }
+      SSESpecification: { SSEEnabled: true }
+
+  # The log-batch scorer: ingests WAF logs and move lines, syncs the IP sets and the cell outside
+  # a surge, and alerts. The 1-minute tick runs in TickFunction with its own role.
+  ScorerRole:
+    Type: AWS::IAM::Role
+    Condition: HasScorer
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: scorer
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:BatchWriteItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query, dynamodb:GetItem]
+                Resource: !GetAtt ScorerTable.Arn
+              - Effect: Allow
+                Action: [wafv2:GetIPSet, wafv2:UpdateIPSet, wafv2:GetRegexPatternSet, wafv2:UpdateRegexPatternSet]
+                Resource:
+                  - !GetAtt FlaggedIps.Arn
+                  - !GetAtt FlaggedIps6.Arn
+                  - !GetAtt FlaggedJa4.Arn
+                  - !GetAtt AllowedIps.Arn
+                  - !GetAtt AllowedIps6.Arn
+                  - !GetAtt ChallengeIps.Arn
+                  - !GetAtt SuspectIps.Arn
+              - Effect: Allow
+                Action: [cloudfront-keyvaluestore:DescribeKeyValueStore, cloudfront-keyvaluestore:ListKeys,
+                         cloudfront-keyvaluestore:UpdateKeys]
+                Resource: !GetAtt CellStore.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AlertTopic
+              - Effect: Allow
+                Action: [kms:GenerateDataKey*, kms:Decrypt]
+                Resource: "*"
+                Condition: { StringEquals: { "kms:ViaService": !Sub "sns.${AWS::Region}.amazonaws.com" } }
+
+  ScorerFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasScorer
+    Properties:
+      Runtime: python3.14
+      Handler: aa_ai.scorer.handler
+      Role: !GetAtt ScorerRole.Arn
+      Code: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref ScorerCodeKey }
+      Layers: !If [HasJudge, [!Ref JudgeLayer], !Ref AWS::NoValue]
+      MemorySize: 512
+      Timeout: 60
+      ReservedConcurrentExecutions: 30
+      Environment:
+        Variables:
+          MODE: !Ref ScorerMode
+          TABLE_NAME: !Ref ScorerTable
+          IPSET4_NAME: aa-ai-flagged-ips
+          IPSET4_ID: !GetAtt FlaggedIps.Id
+          IPSET6_NAME: aa-ai-flagged-ips6
+          IPSET6_ID: !GetAtt FlaggedIps6.Id
+          JA4SET_NAME: aa-ai-flagged-ja4
+          JA4SET_ID: !GetAtt FlaggedJa4.Id
+          ALLOW4_NAME: aa-ai-allowed-ips
+          ALLOW4_ID: !GetAtt AllowedIps.Id
+          ALLOW6_NAME: aa-ai-allowed-ips6
+          ALLOW6_ID: !GetAtt AllowedIps6.Id
+          CHALLENGE4_NAME: aa-ai-challenge-ips
+          CHALLENGE4_ID: !GetAtt ChallengeIps.Id
+          SUSPECT4_NAME: aa-ai-suspect-ips
+          SUSPECT4_ID: !GetAtt SuspectIps.Id
+          FLAG_JA4: !Ref FlagJa4
+          ALLOW_CIDRS: !Ref AllowCidrs
+          DECOY_PREFIX: !Ref DecoyPrefix
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          DASHBOARD_URL: !Sub "https://${Distribution.DomainName}/_undertow/index.html"
+          CANARY_VALUES: !Ref CanaryKey
+          CELL_KVS_ARN: !GetAtt CellStore.Arn
+          DATACENTER_RANGES_URL: !Ref DatacenterRangesUrl
+          DATACENTER_CIDRS: !Ref DatacenterCidrs
+          TOR_EXIT_URL: !Ref TorExitUrl
+          GREYNOISE_KEY: !Ref GreyNoiseKey
+          ABUSEIPDB_KEY: !Ref AbuseIpdbKey
+
+  # The 1-minute tick: flood mode, the authoritative sync, auto-tune, costs, the dashboard snapshot,
+  # the canary check. Its own function and concurrency, so ingestion can never starve it.
+  TickRole:
+    Type: AWS::IAM::Role
+    Condition: HasScorer
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: tick
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:BatchWriteItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query, dynamodb:GetItem]
+                Resource: !GetAtt ScorerTable.Arn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${DashboardBucket.Arn}/data/data-*.json"
+              - Effect: Allow
+                Action: [wafv2:GetIPSet, wafv2:UpdateIPSet, wafv2:GetRegexPatternSet, wafv2:UpdateRegexPatternSet]
+                Resource:
+                  - !GetAtt FlaggedIps.Arn
+                  - !GetAtt FlaggedIps6.Arn
+                  - !GetAtt FlaggedJa4.Arn
+                  - !GetAtt AllowedIps.Arn
+                  - !GetAtt AllowedIps6.Arn
+                  - !GetAtt ChallengeIps.Arn
+                  - !GetAtt SuspectIps.Arn
+              # flood mode: the tick adds, keeps and removes its one pattern rule in the web ACL
+              - Effect: Allow
+                Action: [wafv2:GetWebACL, wafv2:UpdateWebACL]
+                Resource:
+                  - !GetAtt WebAcl.Arn
+                  - !GetAtt AdminIps.Arn
+                  - !GetAtt AllowedIps.Arn
+                  - !GetAtt AllowedIps6.Arn
+                  - !GetAtt ChallengeIps.Arn
+                  - !GetAtt SuspectIps.Arn
+                  - !GetAtt FlaggedIps.Arn
+                  - !GetAtt FlaggedIps6.Arn
+                  - !GetAtt FlaggedJa4.Arn
+              # flood mode asks the judge's model for at most one pattern rule while a surge lasts
+              - Effect: Allow
+                Action: [bedrock-mantle:CreateInference]
+                Resource: "*"
+              # Budget page: hourly usage, the protected apps' distributions, the daily bill check.
+              # None of these actions supports resource-level permissions.
+              - Effect: Allow
+                Action: [cloudwatch:GetMetricData, cloudfront:ListDistributionsByWebACLId, ce:GetCostAndUsage,
+                         ce:ListCostAllocationTags, ce:UpdateCostAllocationTagsStatus]
+                Resource: "*"
+              - Effect: Allow
+                Action: [iam:ListAccessKeys, iam:GetAccessKeyLastUsed]
+                Resource: !GetAtt CanaryUser.Arn
+              - Effect: Allow
+                Action: [cloudfront-keyvaluestore:DescribeKeyValueStore, cloudfront-keyvaluestore:ListKeys,
+                         cloudfront-keyvaluestore:UpdateKeys]
+                Resource: !GetAtt CellStore.Arn
+              - Effect: Allow
+                Action: [sns:Publish, sns:ListSubscriptionsByTopic]
+                Resource: !Ref AlertTopic
+              - Effect: Allow
+                Action: [kms:GenerateDataKey*, kms:Decrypt]
+                Resource: "*"
+                Condition: { StringEquals: { "kms:ViaService": !Sub "sns.${AWS::Region}.amazonaws.com" } }
+
+  TickFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasScorer
+    Properties:
+      Runtime: python3.14
+      Handler: aa_ai.scorer.tick_handler
+      Role: !GetAtt TickRole.Arn
+      Code: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref ScorerCodeKey }
+      Layers: !If [HasJudge, [!Ref JudgeLayer], !Ref AWS::NoValue]
+      MemorySize: 512
+      Timeout: 90
+      ReservedConcurrentExecutions: 2   # one tick, plus one that overruns
+      Environment:
+        Variables:
+          MODE: !Ref ScorerMode
+          TABLE_NAME: !Ref ScorerTable
+          IPSET4_NAME: aa-ai-flagged-ips
+          IPSET4_ID: !GetAtt FlaggedIps.Id
+          IPSET6_NAME: aa-ai-flagged-ips6
+          IPSET6_ID: !GetAtt FlaggedIps6.Id
+          JA4SET_NAME: aa-ai-flagged-ja4
+          JA4SET_ID: !GetAtt FlaggedJa4.Id
+          ALLOW4_NAME: aa-ai-allowed-ips
+          ALLOW4_ID: !GetAtt AllowedIps.Id
+          ALLOW6_NAME: aa-ai-allowed-ips6
+          ALLOW6_ID: !GetAtt AllowedIps6.Id
+          CHALLENGE4_NAME: aa-ai-challenge-ips
+          CHALLENGE4_ID: !GetAtt ChallengeIps.Id
+          SUSPECT4_NAME: aa-ai-suspect-ips
+          SUSPECT4_ID: !GetAtt SuspectIps.Id
+          FLAG_JA4: !Ref FlagJa4
+          ALLOW_CIDRS: !Ref AllowCidrs
+          DECOY_PREFIX: !Ref DecoyPrefix
+          DASHBOARD_BUCKET: !Ref DashboardBucket
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          DASHBOARD_URL: !Sub "https://${Distribution.DomainName}/_undertow/index.html"
+          CANARY_USER: !Ref CanaryUser
+          CANARY_VALUES: !Ref CanaryKey
+          CELL_KVS_ARN: !GetAtt CellStore.Arn
+          VERDICT_URL: !Sub "${HttpApi.ApiEndpoint}/_undertow/v1/verdict"
+          WEBACL_NAME: aa-ai-edge-shield
+          WEBACL_ID: !GetAtt WebAcl.Id
+          JUDGE_MODEL: !Ref JudgeModel
+          # Budget page: the engine's own resources (memory sizes must match each function's MemorySize)
+          WEBACL_ARN: !GetAtt WebAcl.Arn
+          DISTRIBUTION_ID: !Ref Distribution
+          API_ID: !Ref HttpApi
+          MONTHLY_BUDGET_USD: !Ref MonthlyBudgetUsd
+          COST_FUNCTIONS: !Join ["", [!Sub "${ScorerFunction}:512,${CellFunction}:256,${AdminFunction}:256,${VerdictFunction}:256",
+                                      !If [HasJudge, !Sub ",${JudgeFunction}:512", ""]]]
+
+  # a tick only matters now: a throttled or failed one is dropped, never queued behind the next
+  TickInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref TickFunction
+      Qualifier: $LATEST
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  TickLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasScorer
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${TickFunction}"
+      RetentionInDays: 90
+
+  AppMovesPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasAppLogs
+    Properties:
+      FunctionName: !Ref ScorerFunction
+      Action: lambda:InvokeFunction
+      Principal: logs.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AppLogGroupName}:*"
+      SourceAccount: !Ref AWS::AccountId
+
+  AppMovesSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Condition: HasAppLogs
+    DependsOn: AppMovesPermission
+    Properties:
+      LogGroupName: !Ref AppLogGroupName
+      FilterPattern: '"undertow_move"'
+      DestinationArn: !GetAtt ScorerFunction.Arn
+
+  CellStore:
+    Type: AWS::CloudFront::KeyValueStore
+    Condition: HasScorer
+    Properties:
+      Name: undertow-cell
+      Comment: Viewer IPs routed to the padded cell
+
+  CellRouter:
+    Type: AWS::CloudFront::Function
+    Condition: HasScorer
+    Properties:
+      Name: undertow-cell-router
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Route confirmed agents to the padded cell; fails open to the app
+        Runtime: cloudfront-js-2.0
+        KeyValueStoreAssociations: [{ KeyValueStoreARN: !GetAtt CellStore.Arn }]
+      FunctionCode: !Sub |
+        import cf from 'cloudfront';
+        async function handler(event) {
+          var req = event.request;
+          try {
+            var auth = req.headers.authorization ? req.headers.authorization.value : '';
+            var cell = auth.indexOf('hny_') !== -1;
+            for (var c in req.cookies) {   // the cell's own sign-in hands the token back as a cookie
+              if (!cell && req.cookies[c].value.indexOf('hny_') !== -1) { cell = true; }
+            }
+            if (!cell) {
+              cell = await cf.kvs('${CellStore.Id}').exists('ip:' + event.viewer.ip);
+            }
+            if (cell) {
+              // which app it attacked, for the cell's mirror (a query param: origin request policies cap headers at 10)
+              req.querystring['__undertow_app'] = { value: req.headers.host ? req.headers.host.value : '' };
+              cf.selectRequestOriginById('cell');
+            }
+          } catch (e) {
+          }
+          return req;
+        }
+
+  CellRole:
+    Type: AWS::IAM::Role
+    Condition: HasScorer
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: cell-state
+          PolicyDocument:
+            Statement:
+              - Effect: Allow   # its own CELL#<tag> rows only, never flags or policy
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query]
+                Resource: !GetAtt ScorerTable.Arn
+                Condition:
+                  ForAllValues:StringLike: { "dynamodb:LeadingKeys": ["CELL#*"] }
+              - Effect: Allow   # which app an agent was attacking -> that app's origin (policy.apps)
+                Action: dynamodb:GetItem
+                Resource: !GetAtt ScorerTable.Arn
+                Condition:
+                  ForAllValues:StringEquals: { "dynamodb:LeadingKeys": ["POLICY"] }
+        - !If
+          - HasSecretArn
+          - PolicyName: read-origin-secret
+            PolicyDocument:
+              Statement:
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource: !Ref OriginVerifySecretArn
+          - !Ref AWS::NoValue
+
+  CellFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasScorer
+    Properties:
+      Runtime: python3.14
+      Handler: aa_ai.lambda_url.cell_handler
+      Role: !GetAtt CellRole.Arn
+      Code: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref ScorerCodeKey }
+      MemorySize: 256
+      Timeout: 20
+      ReservedConcurrentExecutions: 30
+      Environment:
+        Variables:
+          DECOY_PREFIX: !Ref DecoyPrefix
+          CELL_TITLE: !Ref CellTitle
+          APP_ORIGIN: !Ref OriginDomainName
+          TABLE_NAME: !Ref ScorerTable
+          CELL_NOTICE: !Ref CellNotice
+          ORIGIN_SECRET_ARN: !If [HasSecretArn, !Ref OriginVerifySecretArn, ""]
+          ORIGIN_SECRET: !If [HasSecretArn, "", !Ref OriginVerifySecret]
+
+  CellLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasScorer
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${CellFunction}"
+      RetentionInDays: 30
+
+  CellUrl:
+    Type: AWS::Lambda::Url
+    Condition: HasScorer
+    Properties:
+      TargetFunctionArn: !GetAtt CellFunction.Arn
+      AuthType: NONE
+
+  CellUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref CellFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  CellUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref CellFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  CellMovesPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref ScorerFunction
+      Action: lambda:InvokeFunction
+      Principal: logs.amazonaws.com
+      SourceArn: !GetAtt CellLogs.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+  CellMovesSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Condition: HasScorer
+    DependsOn: CellMovesPermission
+    Properties:
+      LogGroupName: !Ref CellLogs
+      FilterPattern: '"undertow_move"'
+      DestinationArn: !GetAtt ScorerFunction.Arn
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasScorer
+    Properties:
+      DisplayName: Undertow
+      KmsMasterKeyId: alias/aws/sns
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # The two services a flood inflates. Cost filters are account-wide: other web ACLs and
+  # distributions in the account count too.
+  CostBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudgetEmail
+    Properties:
+      Budget:
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUsd, Unit: USD }
+        CostFilters: { Service: ["AWS WAF", "Amazon CloudFront"] }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Condition: HasScorer
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: undertow-users
+      UsernameAttributes: [email]
+      UsernameConfiguration: { CaseSensitive: false }
+      AutoVerifiedAttributes: [email]
+      AccountRecoverySetting: { RecoveryMechanisms: [{ Name: verified_email, Priority: 1 }] }
+      DeletionProtection: ACTIVE
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailSubject: Your Undertow invite
+          EmailMessage: !Sub
+            - "You have been invited to Undertow.<br><br>Sign in: ${Url}<br>Email: {username}<br>Temporary password: {####}<br><br>You will choose your own password at first sign-in. The temporary password expires in 7 days."
+            - Url: !If [HasLoginUrl, !Ref LoginUrl, "the Undertow sign-in page your admin shared"]
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailSubject: Your Undertow code
+        EmailMessage: "Your Undertow verification code is {####}. It expires in 1 hour. If you did not ask for it, ignore this email."
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: HasScorer
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: undertow-dashboard
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 12
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: hours }
+
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Condition: HasScorer
+    Properties: { UserPoolId: !Ref UserPool, GroupName: admin, Description: "Everything, including users and enforcement" }
+
+  UserGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Condition: HasScorer
+    Properties: { UserPoolId: !Ref UserPool, GroupName: user, Description: Read-only dashboard }
+
+  FirstAdmin:
+    Type: AWS::Cognito::UserPoolUser
+    Condition: HasAdminEmail
+    Properties:
+      UserPoolId: !Ref UserPool
+      Username: !Ref AdminEmail
+      DesiredDeliveryMediums: [EMAIL]
+      UserAttributes:
+        - { Name: email, Value: !Ref AdminEmail }
+        - { Name: email_verified, Value: "true" }
+
+  FirstAdminGroup:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Condition: HasAdminEmail
+    Properties: { UserPoolId: !Ref UserPool, GroupName: !Ref AdminGroup, Username: !Ref FirstAdmin }
+
+  AdminRole:
+    Type: AWS::IAM::Role
+    Condition: HasScorer
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: admin
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:BatchWriteItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query,
+                         dynamodb:GetItem, dynamodb:DeleteItem]
+                Resource: !GetAtt ScorerTable.Arn
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub "${DashboardBucket.Arn}/data/data-*.json"
+              - Effect: Allow
+                Action: [cognito-idp:ListUsers, cognito-idp:ListUsersInGroup, cognito-idp:AdminGetUser,
+                         cognito-idp:AdminCreateUser, cognito-idp:AdminDeleteUser, cognito-idp:AdminDisableUser,
+                         cognito-idp:AdminEnableUser, cognito-idp:AdminAddUserToGroup,
+                         cognito-idp:AdminRemoveUserFromGroup, cognito-idp:AdminListGroupsForUser,
+                         cognito-idp:AdminResetUserPassword, cognito-idp:AdminUserGlobalSignOut,
+                         cognito-idp:AdminSetUserMFAPreference]
+                Resource: !GetAtt UserPool.Arn
+              - Effect: Allow
+                Action: [wafv2:GetIPSet, wafv2:UpdateIPSet, wafv2:GetRegexPatternSet, wafv2:UpdateRegexPatternSet]
+                Resource:
+                  - !GetAtt FlaggedIps.Arn
+                  - !GetAtt FlaggedIps6.Arn
+                  - !GetAtt FlaggedJa4.Arn
+                  - !GetAtt AllowedIps.Arn
+                  - !GetAtt AllowedIps6.Arn
+                  - !GetAtt ChallengeIps.Arn
+                  - !GetAtt SuspectIps.Arn
+              - Effect: Allow
+                Action: [wafv2:GetWebACL, wafv2:UpdateWebACL]
+                Resource:
+                  - !GetAtt WebAcl.Arn
+                  - !GetAtt AdminIps.Arn
+                  - !GetAtt AllowedIps.Arn
+                  - !GetAtt AllowedIps6.Arn
+                  - !GetAtt ChallengeIps.Arn
+                  - !GetAtt SuspectIps.Arn
+                  - !GetAtt FlaggedIps.Arn
+                  - !GetAtt FlaggedIps6.Arn
+                  - !GetAtt FlaggedJa4.Arn
+              - Effect: Allow
+                Action: [sns:Publish, sns:ListSubscriptionsByTopic]
+                Resource: !Ref AlertTopic
+              - Effect: Allow
+                Action: [kms:GenerateDataKey*, kms:Decrypt]
+                Resource: "*"
+                Condition: { StringEquals: { "kms:ViaService": !Sub "sns.${AWS::Region}.amazonaws.com" } }
+
+  AdminFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasScorer
+    Properties:
+      Runtime: python3.14
+      Handler: aa_ai.admin.handler
+      Role: !GetAtt AdminRole.Arn
+      Code: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref ScorerCodeKey }
+      MemorySize: 256
+      Timeout: 60
+      ReservedConcurrentExecutions: 2
+      Environment:
+        Variables:
+          MODE: !Ref ScorerMode
+          TABLE_NAME: !Ref ScorerTable
+          USER_POOL_ID: !Ref UserPool
+          IPSET4_NAME: aa-ai-flagged-ips
+          IPSET4_ID: !GetAtt FlaggedIps.Id
+          IPSET6_NAME: aa-ai-flagged-ips6
+          IPSET6_ID: !GetAtt FlaggedIps6.Id
+          JA4SET_NAME: aa-ai-flagged-ja4
+          JA4SET_ID: !GetAtt FlaggedJa4.Id
+          ALLOW4_NAME: aa-ai-allowed-ips
+          ALLOW4_ID: !GetAtt AllowedIps.Id
+          ALLOW6_NAME: aa-ai-allowed-ips6
+          ALLOW6_ID: !GetAtt AllowedIps6.Id
+          CHALLENGE4_NAME: aa-ai-challenge-ips
+          CHALLENGE4_ID: !GetAtt ChallengeIps.Id
+          SUSPECT4_NAME: aa-ai-suspect-ips
+          SUSPECT4_ID: !GetAtt SuspectIps.Id
+          FLAG_JA4: !Ref FlagJa4
+          ALLOW_CIDRS: !Ref AllowCidrs
+          DECOY_PREFIX: !Ref DecoyPrefix
+          DASHBOARD_BUCKET: !Ref DashboardBucket
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          WEBACL_NAME: aa-ai-edge-shield
+          WEBACL_ID: !GetAtt WebAcl.Id
+          DASHBOARD_URL: !If [HasDomain, !Sub "https://${DomainName}/_undertow/index.html", ""]
+
+  AdminLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasScorer
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AdminFunction}"
+      RetentionInDays: 90
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Condition: HasScorer
+    Properties:
+      Name: undertow-dashboard-api
+      ProtocolType: HTTP
+
+  HttpApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Condition: HasScorer
+    Properties:
+      ApiId: !Ref HttpApi
+      Name: cognito
+      AuthorizerType: JWT
+      IdentitySource: [$request.header.Authorization]
+      JwtConfiguration:
+        Audience: [!Ref UserPoolClient]
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+
+  HttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Condition: HasScorer
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AdminFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  HttpApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: HasScorer
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /_undertow/api/{proxy+}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref HttpApiAuthorizer
+      Target: !Sub "integrations/${HttpApiIntegration}"
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Condition: HasScorer
+    DependsOn: VerdictRoute
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings: { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 20 }
+      RouteSettings:   # gateways call the verdict API per request; the dashboard stays at the default
+        "POST /_undertow/v1/verdict": { ThrottlingBurstLimit: 1000, ThrottlingRateLimit: 500 }
+
+  # ---------- verdict API: any gateway, proxy or appliance asks what to do with a request ----------
+  VerdictRole:
+    Type: AWS::IAM::Role
+    Condition: HasScorer
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: read-state
+          PolicyDocument:
+            Statement:
+              - Effect: Allow   # read only: it answers; the scorer learns
+                Action: [dynamodb:GetItem, dynamodb:Query]
+                Resource: !GetAtt ScorerTable.Arn
+
+  VerdictFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasScorer
+    Properties:
+      Runtime: python3.14
+      Handler: aa_ai.verdict.handler
+      Role: !GetAtt VerdictRole.Arn
+      Code: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref ScorerCodeKey }
+      MemorySize: 256
+      Timeout: 5
+      ReservedConcurrentExecutions: 20
+      Environment:
+        Variables:
+          MODE: !Ref ScorerMode
+          TABLE_NAME: !Ref ScorerTable
+          DECOY_PREFIX: !Ref DecoyPrefix
+          ALLOW_CIDRS: !Ref AllowCidrs
+          CANARY_VALUES: !Ref CanaryKey
+
+  VerdictLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasScorer
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${VerdictFunction}"
+      RetentionInDays: 30
+
+  VerdictEventsPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref ScorerFunction
+      Action: lambda:InvokeFunction
+      Principal: logs.amazonaws.com
+      SourceArn: !GetAtt VerdictLogs.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+  VerdictEventsSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Condition: HasScorer
+    DependsOn: VerdictEventsPermission
+    Properties:
+      LogGroupName: !Ref VerdictLogs
+      FilterPattern: '"undertow_event"'
+      DestinationArn: !GetAtt ScorerFunction.Arn
+
+  VerdictIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Condition: HasScorer
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt VerdictFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  VerdictRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: HasScorer
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /_undertow/v1/verdict
+      AuthorizationType: NONE   # verdict keys are checked in the function, failing closed
+      Target: !Sub "integrations/${VerdictIntegration}"
+
+  VerdictApiPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref VerdictFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/_undertow/v1/verdict"
+
+  HttpApiPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref AdminFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  ScorerLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasScorer
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ScorerFunction}"
+      RetentionInDays: 90
+
+  ScorerLogsPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref ScorerFunction
+      Action: lambda:InvokeFunction
+      Principal: logs.amazonaws.com
+      SourceArn: !GetAtt WafLogs.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+  ScorerSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Condition: HasScorer
+    DependsOn: ScorerLogsPermission
+    Properties:
+      LogGroupName: !Ref WafLogs
+      FilterPattern: ""
+      DestinationArn: !GetAtt ScorerFunction.Arn
+
+
+  SnapshotSchedule:
+    Type: AWS::Events::Rule
+    Condition: HasScorer
+    Properties:
+      ScheduleExpression: rate(1 minute)
+      Targets:
+        - Id: snapshot
+          Arn: !GetAtt TickFunction.Arn
+          Input: '{"action":"snapshot"}'
+
+  SnapshotSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasScorer
+    Properties:
+      FunctionName: !Ref TickFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SnapshotSchedule.Arn
+
+  CanaryUser:
+    Type: AWS::IAM::User
+    Condition: HasScorer
+    Properties:
+      UserName: svc-inventory-sync
+      Policies:
+        - PolicyName: deny-everything
+          PolicyDocument:
+            Statement: [{ Effect: Deny, Action: "*", Resource: "*" }]
+      Tags: [{ Key: owner, Value: platform }]
+
+  CanaryKey:
+    Type: AWS::IAM::AccessKey
+    Condition: HasScorer
+    Properties: { UserName: !Ref CanaryUser }
+
+  CanarySecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: HasScorer
+    Properties:
+      Description: Undertow canary AWS key (planted in decoy files; it has no permissions)
+      SecretString: !Sub '{"id":"${CanaryKey}","secret":"${CanaryKey.SecretAccessKey}"}'
+
+  JudgeLayer:
+    Type: AWS::Lambda::LayerVersion
+    Condition: HasJudge
+    Properties:
+      Description: Model SDK for the Undertow judge
+      CompatibleRuntimes: [python3.14]
+      Content: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref JudgeLayerKey }
+
+  JudgeRole:
+    Type: AWS::IAM::Role
+    Condition: HasJudge
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: judge
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [bedrock-mantle:CreateInference]
+                Resource: "*"
+              - Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query, dynamodb:GetItem, dynamodb:BatchWriteItem]
+                Resource: !GetAtt ScorerTable.Arn
+              - Effect: Allow
+                Action: [wafv2:GetIPSet, wafv2:UpdateIPSet, wafv2:GetRegexPatternSet, wafv2:UpdateRegexPatternSet]
+                Resource:
+                  - !GetAtt FlaggedIps.Arn
+                  - !GetAtt FlaggedIps6.Arn
+                  - !GetAtt FlaggedJa4.Arn
+                  - !GetAtt AllowedIps.Arn
+                  - !GetAtt AllowedIps6.Arn
+                  - !GetAtt ChallengeIps.Arn
+                  - !GetAtt SuspectIps.Arn
+              - Effect: Allow
+                Action: [sns:Publish]
+                Resource: !Ref AlertTopic
+              - Effect: Allow
+                Action: [kms:GenerateDataKey*, kms:Decrypt]
+                Resource: "*"
+                Condition: { StringEquals: { "kms:ViaService": !Sub "sns.${AWS::Region}.amazonaws.com" } }
+
+  JudgeFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasJudge
+    Properties:
+      Runtime: python3.14
+      Handler: aa_ai.judge.handler
+      Role: !GetAtt JudgeRole.Arn
+      Code: { S3Bucket: !Ref ScorerCodeBucket, S3Key: !Ref ScorerCodeKey }
+      Layers: [!Ref JudgeLayer]
+      MemorySize: 512
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          JUDGE_MODEL: !Ref JudgeModel
+          MODE: !Ref ScorerMode
+          TABLE_NAME: !Ref ScorerTable
+          IPSET4_NAME: aa-ai-flagged-ips
+          IPSET4_ID: !GetAtt FlaggedIps.Id
+          IPSET6_NAME: aa-ai-flagged-ips6
+          IPSET6_ID: !GetAtt FlaggedIps6.Id
+          JA4SET_NAME: aa-ai-flagged-ja4
+          JA4SET_ID: !GetAtt FlaggedJa4.Id
+          ALLOW4_NAME: aa-ai-allowed-ips
+          ALLOW4_ID: !GetAtt AllowedIps.Id
+          ALLOW6_NAME: aa-ai-allowed-ips6
+          ALLOW6_ID: !GetAtt AllowedIps6.Id
+          CHALLENGE4_NAME: aa-ai-challenge-ips
+          CHALLENGE4_ID: !GetAtt ChallengeIps.Id
+          SUSPECT4_NAME: aa-ai-suspect-ips
+          SUSPECT4_ID: !GetAtt SuspectIps.Id
+          FLAG_JA4: !Ref FlagJa4
+          ALLOW_CIDRS: !Ref AllowCidrs
+          DECOY_PREFIX: !Ref DecoyPrefix
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          DASHBOARD_URL: !Sub "https://${Distribution.DomainName}/_undertow/index.html"
+
+  JudgeLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasJudge
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${JudgeFunction}"
+      RetentionInDays: 90
+
+  JudgeSchedule:
+    Type: AWS::Events::Rule
+    Condition: HasJudge
+    Properties:
+      ScheduleExpression: rate(2 minutes)
+      Targets:
+        - Id: judge
+          Arn: !GetAtt JudgeFunction.Arn
+
+  JudgeSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasJudge
+    Properties:
+      FunctionName: !Ref JudgeFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt JudgeSchedule.Arn
+
+Outputs:
+  UserPoolId: { Condition: HasScorer, Value: !Ref UserPool }
+  UserPoolClientId: { Condition: HasScorer, Value: !Ref UserPoolClient }
+  ChallengeIpSetId: { Value: !GetAtt ChallengeIps.Id }
+  SuspectIpSetId: { Value: !GetAtt SuspectIps.Id }
+  CanarySecretArn: { Condition: HasScorer, Value: !Ref CanarySecret }
+  DashboardBucketName: { Value: !Ref DashboardBucket }
+  DashboardUrl:
+    Value: !If
+      - HasDomain
+      - !Sub "https://${DomainName}/_undertow/index.html"
+      - !Sub "https://${Distribution.DomainName}/_undertow/index.html"
+  DistributionDomain: { Value: !GetAtt Distribution.DomainName }
+  WebAclArn: { Value: !GetAtt WebAcl.Arn }
+  FlaggedIpSetId: { Value: !GetAtt FlaggedIps.Id }
+  FlaggedIp6SetId: { Value: !GetAtt FlaggedIps6.Id }
+  FlaggedJa4SetId: { Value: !GetAtt FlaggedJa4.Id }
+  AllowedIpSetId: { Value: !GetAtt AllowedIps.Id }
+  AllowedIp6SetId: { Value: !GetAtt AllowedIps6.Id }
+  ScorerTableName: { Condition: HasScorer, Value: !Ref ScorerTable }
+  ScorerFunctionName: { Condition: HasScorer, Value: !Ref ScorerFunction }
+  TickFunctionName: { Condition: HasScorer, Value: !Ref TickFunction }
+  DecoyBucketName: { Value: !Ref DecoyBucket }
+  CellStoreArn: { Condition: HasScorer, Value: !GetAtt CellStore.Arn }
+  CellRouterName: { Condition: HasScorer, Value: !Ref CellRouter }
+  WafLogGroup: { Value: !Ref WafLogs }
+  VerdictApiUrl: { Condition: HasScorer, Value: !Sub "${HttpApi.ApiEndpoint}/_undertow/v1/verdict" }
+  CellRouterArn: { Condition: HasScorer, Value: !GetAtt CellRouter.FunctionMetadata.FunctionARN, Export: { Name: !Sub "${AWS::StackName}-CellRouterArn" } }
+  CellOriginDomain: { Condition: HasScorer, Value: !Select [2, !Split ["/", !GetAtt CellUrl.FunctionUrl]], Export: { Name: !Sub "${AWS::StackName}-CellOriginDomain" } }
+  WebAclArnExport: { Value: !GetAtt WebAcl.Arn, Export: { Name: !Sub "${AWS::StackName}-WebAclArn" } }
