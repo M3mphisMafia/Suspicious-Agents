@@ -53,8 +53,8 @@ The harness is model-agnostic. Point it at the kind of model an attacker would a
 any OpenAI-compatible endpoint (a self-hosted vLLM / Ollama / LM Studio open-weights model):
 
 ```bash
-RED_DRIVER=openai RED_BASE_URL=http://your-model:8000/v1 RED_MODEL=<name> RED_FORCE=1 \
-  python -m redteam.agent https://<target>
+RED_DRIVER=openai RED_BASE_URL=http://your-model:8000/v1 RED_MODEL=<name> \
+  python -m redteam.agent https://<your-undertow-distribution>
 ```
 
 ## What is already proven (without an LLM in the loop)

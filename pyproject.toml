@@ -3,8 +3,8 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aa-ai"
-version = "1.0.0"
+name = "undertow-security"
+version = "1.0.1"
 description = "Undertow Security: detect, deceive and drain autonomous AI attack agents (ARTEX-class)"
 readme = "README.md"
 license = "Apache-2.0"
@@ -17,6 +17,7 @@ test = ["pytest>=8", "cfn-lint>=1", "cryptography>=42"]
 aws = ["boto3>=1.35"]
 
 [project.scripts]
+undertow-security = "aa_ai.__main__:main"
 aa-ai = "aa_ai.__main__:main"
 
 [tool.setuptools.packages.find]

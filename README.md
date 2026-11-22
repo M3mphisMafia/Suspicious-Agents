@@ -12,6 +12,15 @@ and keeps your real app running.
 
 > Defensive use only. Nothing here reaches back into attacker infrastructure.
 
+[![tests](https://github.com/M3mphisMafia/Suspicious-Agents/actions/workflows/tests.yml/badge.svg)](https://github.com/M3mphisMafia/Suspicious-Agents/actions/workflows/tests.yml)
+· License: [Apache 2.0](LICENSE) · [Changelog](CHANGELOG.md) · [Install guide](CLAUDE.md) · [Security policy](SECURITY.md)
+
+**New in 1.0:** flood mode and AWS managed edge rules against bot floods, protection for apps on
+their own CloudFront distributions, and a Budget page with a $100 alarm (a typical install runs
+about $50 a month). See the [changelog](CHANGELOG.md).
+
+![The Undertow Security dashboard, showing demo data](docs/images/dashboard.jpg)
+
 ## The platform
 
 The engine is the product; everything else plugs into it. One engine powers the dashboard, the
@@ -110,12 +119,54 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[test,aws]'
 .venv/bin/python -m aa_ai decoys --prefix /api/v1/internal/ops --out decoy-site
 ```
 
+## Responsible use
+
+Undertow Security is built to defend your own applications. A few parts of it act on attackers,
+so they come with rules:
+
+- **The attack tools only hit your own store.** The ARTEX-shaped simulator (`store.attack_sim`,
+  `store.artex`) and the LLM red-team agent (`redteam/`) refuse any host that doesn't answer as the
+  Undertow reference store. There is no override.
+- **Deception stays on your side.** The padded cell, decoys, canary credentials and honey tokens
+  live inside your own app and account. Nothing reaches back into attacker infrastructure, and the
+  canary AWS key has no permissions.
+- **Real users are protected first.** Style alone never blocks anyone, allow lists always win,
+  every verdict expires, and the edge starts in observe mode.
+- **Check your own obligations.** Running a honeypot and logging attacker traffic can carry legal
+  and privacy duties where you operate. Review them before production.
+
+### The data it keeps
+
+Undertow Security stores attacker traffic in your own AWS account and nowhere else. IP addresses
+and request details are personal data in some jurisdictions; this is how long each kind is kept:
+
+| Data | Kept for |
+| --- | --- |
+| Per-actor request events (IP, path, user agent, status) | 6 hours |
+| Verdict flags | 1 hour (tarpit), 24 hours (block), 15 minutes (flood) |
+| Watch list and per-minute rate counters | 1 hour |
+| IP reputation cache | 3 to 6 hours |
+| Hourly and per-minute stats | 26 hours |
+| Decoy hits, agent tags, moves on the board, user-agent tallies | 7 days |
+| Padded cell state per agent (what it wrote into the fake app) | 7 days |
+| The Judge's recorded verdicts (with up to 5 IPs each) | 7 days |
+| False-positive labels used for tuning | 30 days |
+| Operator audit log (admin actions and their source IP) | 90 days |
+| WAF request logs in CloudWatch | 90 days |
+| Lambda function logs | 30 to 90 days |
+| Canary key use (service and region, no IP) | 1 year |
+| Cost samples for the Budget page (no personal data) | 400 days |
+
+All of these are TTLs or log retention settings in the templates and code, so you can shorten
+them.
+
 ## Status
 
 The platform runs end to end: the engine, the dashboard, the edge, and the reference store
-deploy together and have been exercised under attack — a 50-agent flood was blocked at the edge
-while a real shopper stayed up, and the padded cell drained measurable token budget from scripted
-agents. The offline eval gates CI at 0 false negatives / 0 hard false positives.
+deploy together and have been exercised under attack. In the 1.0 live tests, flood mode blocked
+99.4% of a 478,000-request flood from six machines, and once the agents were judged, up to 100% of
+their requests were answered by the padded cell instead of the real store. The offline eval gates
+CI at 0 false negatives / 0 hard false positives.
 
 **It has not been tested against real ARTEX traffic or real production logs yet.** The next step is
 to replay a lab ARTEX run against a disposable target and tune detector weights from what it

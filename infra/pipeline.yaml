@@ -32,7 +32,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       RepositoryName: undertow
-      RepositoryDescription: Undertow - detect and slow autonomous AI attack agents (mirror of GitHub AA-AI)
+      RepositoryDescription: Undertow Security engine - detect, deceive and drain autonomous AI attack agents
 
   Artifacts:
     Type: AWS::S3::Bucket

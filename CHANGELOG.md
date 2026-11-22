@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1 (2026-11-21)
+
+Launch tidy-up.
+
+- The attack simulator and the red-team agent only run against the Undertow reference store. The
+  `ARTEX_FORCE` and `RED_FORCE` overrides are gone, and a generic 429/503 or an AWS WAF challenge no
+  longer counts as proof of the target; only the store, the padded cell or Undertow's own edge
+  response does.
+- README: responsible use, the data the engine keeps and for how long, and badges.
+- Third-party notices.
+- The Python package is now `undertow-security` (the `aa_ai` import and the `aa-ai` command stay).
+
 ## 1.0.0 (2026-11-21)
 
 First public release of Suspicious Agents, V1 of the Undertow Security platform.

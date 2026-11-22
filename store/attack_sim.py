@@ -77,17 +77,15 @@ def jget(out):
         return {}
 
 
-STORE_SIG = (b"Northwind Supply", b"request could not be processed", b"x-engagement-notice")
+STORE_TITLE = b"Northwind Supply"
+EDGE_BODY = b'{"error":"request could not be processed"}'   # Undertow's own edge response body
 
 
 def is_store(base: str) -> bool:
-    """True if `base` is our own protected store. Accepts every way our stack can answer:
-    the real store's OpenAPI title, the padded cell (engagement notice), an edge 429/503
-    throttle, or a WAF challenge — so the guard never false-refuses our own target, while a
-    random host still matches none of these. ARTEX_FORCE=1 skips the check (operator override)."""
-    import os
-    if os.environ.get("ARTEX_FORCE") == "1":
-        return True
+    """True only if `base` answers as the Undertow reference store: the store's OpenAPI title,
+    the padded cell's engagement notice, or Undertow's own edge 429 (its exact body plus
+    Retry-After). A generic 429/503 or an AWS WAF challenge is NOT proof: other sites send those.
+    There is no override. These tools never run against anyone else's site."""
     base = base.rstrip("/")
     for attempt in range(3):
         try:
@@ -95,24 +93,21 @@ def is_store(base: str) -> bool:
             body = r.read()
             if jget(body).get("info", {}).get("title") == "Northwind Supply":
                 return True
-            if r.headers.get("x-engagement-notice") or _sig(body) or r.headers.get("x-amzn-waf-action"):
+            if r.headers.get("x-engagement-notice") or STORE_TITLE in body:
                 return True
-        except urllib.error.HTTPError as e:   # our edge throttling/blocking us IS proof we reached it
-            if e.code in (429, 503) and (e.headers.get("Retry-After") or e.headers.get("x-amzn-waf-action")):
-                return True
+        except urllib.error.HTTPError as e:
             try:
-                if _sig(e.read()):
-                    return True
+                body = e.read() or b""
             except OSError:
-                pass
+                body = b""
+            if e.headers.get("x-engagement-notice") or STORE_TITLE in body:
+                return True
+            if e.code == 429 and e.headers.get("Retry-After") and body.strip() == EDGE_BODY:
+                return True
         except (urllib.error.URLError, TimeoutError, OSError):
             pass
         time.sleep(2)
     return False
-
-
-def _sig(body: bytes) -> bool:
-    return any(s in (body or b"") for s in STORE_SIG)
 
 
 # ---------- technique profiles (each randomizes within itself) ----------

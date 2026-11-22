@@ -9,7 +9,7 @@ our responses burned, how often it landed in the padded cell, and whether it con
 gave up. This is the test our scripted harness cannot do: whether the deception fools a model.
 
 Safety: HTTP only, target-locked (refuses any other host), with request/time/token budgets.
-Set RED_FORCE=1 to skip the "is this my store?" check for your own known target.
+It runs only against the Undertow reference store (store.attack_sim.is_store); there is no override.
 
 Model driver (RED_DRIVER):
   bedrock (default)  A managed, aligned model. It REFUSES to act as an attacker —
@@ -271,8 +271,8 @@ def _block_dict(b):
 
 
 def main(base: str):
-    if os.environ.get("RED_FORCE") != "1" and not is_store(base):
-        sys.exit("refusing: that host is not the configured target (set RED_FORCE=1 to override)")
+    if not is_store(base):
+        sys.exit("refusing: that host is not the Undertow reference store")
     budget = Budget(max_requests=int(os.environ.get("RED_MAX_REQUESTS", 60)),
                     max_seconds=float(os.environ.get("RED_MAX_SECONDS", 300)),
                     max_tokens=int(os.environ.get("RED_MAX_TOKENS", 2_000_000)))
