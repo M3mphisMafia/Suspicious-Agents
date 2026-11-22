@@ -109,7 +109,7 @@ The engine is Undertow; the builds are its songbook.
 | `redteam/` | LLM-in-the-loop red-team: a real model attacks the build, measured end to end |
 | `evals/` | Offline detection eval with false-positive / false-negative metrics (gates CI) |
 | `infra/` | CloudFormation for the edge shield, the store, and the pipeline |
-| `docs/` | [threat profile](docs/artex-threat-profile.md) · [padded cell](docs/padded-cell.md) · [using its design against it](docs/using-its-design-against-it.md) · [why tools miss it](docs/why-security-tools-miss-it.md) · [red-team results](docs/redteam-results.md) |
+| `docs/` | [live Dashboard](docs/live-dashboard.md) · [threat profile](docs/artex-threat-profile.md) · [padded cell](docs/padded-cell.md) · [using its design against it](docs/using-its-design-against-it.md) · [why tools miss it](docs/why-security-tools-miss-it.md) · [red-team results](docs/redteam-results.md) |
 
 ## Quick start
 
