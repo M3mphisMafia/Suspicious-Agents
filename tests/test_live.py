@@ -241,3 +241,14 @@ def test_the_scene_script_parses():
     html = (ROOT / "dashboard" / "index.html").read_text()
     assert '<script src="live.js" defer></script>' in html and '<link rel="stylesheet" href="live.css">' in html
     assert html.index('id="tab-dashboard"') < html.index('id="tab-overview"')          # the first tab
+
+
+def test_the_console_opens_on_the_dashboard_and_can_refresh():
+    html = (ROOT / "dashboard" / "index.html").read_text()
+    assert 'id="tab-dashboard" aria-selected="true"' in html and 'id="tab-overview" aria-selected="false"' in html
+    assert 'id="view-dashboard" class="view"' in html and 'id="view-overview" class="view hidden"' in html
+    assert '(h || "dashboard").split("/")' in html                                       # no hash, no session: Dashboard
+    assert 'sessionStorage.setItem("undertow-tab"' in html                               # a reload comes back to the tab
+    assert 'id="refresh-now"' in html and 'new CustomEvent("undertow:refresh")' in html
+    js = (ROOT / "dashboard" / "live.js").read_text()
+    assert 'id="lv-refresh"' in js and '"undertow:refresh"' in js

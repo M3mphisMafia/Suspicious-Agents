@@ -65,6 +65,7 @@
       <div class="lv-tools">
         <button id="lv-pal-btn" aria-expanded="false" aria-controls="lv-pal">Add to the scene</button>
         <button id="lv-reset" title="Back to the default lanes and widgets">Reset layout</button>
+        <button id="lv-refresh" title="Load the latest traffic now. It also updates on its own every minute.">↻ Refresh</button>
         <button id="lv-fs" title="Full screen (Esc to leave)">Full screen</button>
       </div>
     </div>
@@ -461,6 +462,10 @@
     if (open) { renderPalette(); const f = p.querySelector("button"); if (f) f.focus(); }
   };
   $("lv-reset").onclick = () => { S.layout = JSON.parse(JSON.stringify(DEFAULT)); changed(); renderWidgets(); };
+  $("lv-refresh").onclick = async e => {   // in the scene's own toolbar so it works in full screen too
+    const b = e.currentTarget; b.disabled = true;
+    try { await poll(); renderWidgets(); } finally { b.disabled = false; }
+  };
 
   // ---------- full screen ----------
   $("lv-fs").onclick = () => {
@@ -521,6 +526,7 @@
   document.addEventListener("visibilitychange", setRunning);
   document.addEventListener("undertow:tab", () => { setRunning(); poll(); renderWidgets(); });
   document.addEventListener("undertow:data", () => { renderWidgets(); renderPalette(); });
+  document.addEventListener("undertow:refresh", () => poll());
   new ResizeObserver(() => { if (visible()) { geom(); if (reduced) staticView(); } }).observe(stage);
   setInterval(poll, 60000);
   if (reduced) $("lv-alt").open = true;

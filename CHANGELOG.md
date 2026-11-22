@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 (2026-11-22)
+
+**The console opens on the Dashboard, and every tab can be refreshed on demand.**
+- The Dashboard is now the first tab you see. Reloading the page keeps you on the tab, Controls
+  section and time range you were on, including after you sign in again in the same browser tab.
+- ↻ Refresh at the top of the console loads the latest data for the open tab at once, including
+  the user list and the integrations. The live scene has its own ↻ Refresh, which works in full
+  screen. The automatic one-minute update is unchanged.
+
 ## 1.1.0 (2026-11-21)
 
 **The Dashboard tab: a live, full-screen scene of the edge.**

@@ -192,6 +192,7 @@ footer { margin-top: 22px; font-size: 12px; color: var(--ink-3); display: flex; 
 .seg.ctl button[aria-pressed="true"] { background: var(--glow-mag); color: #fff; }
 .seg.ctl button[data-mode="observe"][aria-pressed="true"], .seg.ctl button[data-edge="block"][aria-pressed="true"] { background: var(--glow-lime); color: var(--bg); }
 .lockbtn { cursor: pointer; }
+.lockbtn[disabled] { cursor: progress; opacity: .6; }
 .lockbtn.open { border-color: rgba(200,255,62,.6); color: #e9ffc2; }
 .adminp { margin-bottom: 16px; }
 .row-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -353,13 +354,14 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
       <button data-h="6" aria-pressed="true">6h</button>
       <button data-h="24" aria-pressed="false">24h</button>
     </div>
+    <button class="pill lockbtn" id="refresh-now" title="Load the latest data for this tab now. It also updates on its own every minute.">↻ Refresh</button>
     <span class="pill who" id="who" title="Signed in"><span class="dot"></span><span id="who-text">demo</span></span>
     <button class="pill lockbtn" id="signout">Sign out</button>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" id="tab-dashboard" aria-selected="false" aria-controls="view-dashboard">Dashboard</button>
-    <button role="tab" id="tab-overview" aria-selected="true" aria-controls="view-overview">Overview</button>
+    <button role="tab" id="tab-dashboard" aria-selected="true" aria-controls="view-dashboard">Dashboard</button>
+    <button role="tab" id="tab-overview" aria-selected="false" aria-controls="view-overview">Overview</button>
     <button role="tab" id="tab-agents" aria-selected="false" aria-controls="view-agents">Agents</button>
     <button role="tab" id="tab-deception" aria-selected="false" aria-controls="view-deception">Deception</button>
     <button role="tab" id="tab-controls" aria-selected="false" aria-controls="view-controls">Controls</button>
@@ -395,13 +397,13 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     </div>
   </section>
 
-  <div id="view-dashboard" class="view hidden" role="tabpanel" aria-labelledby="tab-dashboard">
+  <div id="view-dashboard" class="view" role="tabpanel" aria-labelledby="tab-dashboard">
     <section class="card c12 lv" id="lv" aria-labelledby="h-live">
       <h2 id="h-live">Live dashboard</h2>
       <div id="lv-root"><p class="sub">The live scene needs <code>live.js</code>; publish the whole dashboard folder.</p></div>
     </section>
   </div>
-  <div id="view-overview" class="view" role="tabpanel" aria-labelledby="tab-overview">
+  <div id="view-overview" class="view hidden" role="tabpanel" aria-labelledby="tab-overview">
   <section class="kpis" aria-label="Key numbers">
     <div class="card kpi"><div class="l">Requests inspected</div><div class="v" id="k-req">-</div><div class="d" id="k-req-d"></div></div>
     <div class="card kpi"><div class="l">Agents flagged</div><div class="v hot" id="k-flag">-</div><div class="d" id="k-flag-d"></div></div>
@@ -806,6 +808,11 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     <section class="card c12" aria-labelledby="h-man">
       <h2 id="h-man">User's manual</h2>
       <div class="doc">
+        <h3>Getting around</h3>
+        <ul>
+          <li>The console opens on <b>Dashboard</b>. Reloading the page keeps you on the tab you were on, and on the time range you chose, even after you sign in again.</li>
+          <li><b>↻ Refresh</b> at the top loads the latest data for the tab you are on right away, including the user list and the integrations. The live scene has its own <b>↻ Refresh</b>, which also works in full screen. Everything updates on its own every minute too.</li>
+        </ul>
         <h3>Reading the attack</h3>
         <ul>
           <li><b>Dashboard</b> — the live scene: requests as lights crossing the edge into your app, for a big screen. Admins see the live feed; see <b>Dashboard</b> below.</li>
@@ -853,6 +860,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
           <li>Drag widgets (requests per minute, agents flagged, in the padded cell, tokens burned, flood mode, budget this month, top agents, recent moves, decoy hits) anywhere on the scene. Drag a widget by its title, or focus it and use the arrow keys; Delete removes it.</li>
           <li>Your layout is saved in this browser for your account. <b>Reset layout</b> brings back the default.</li>
           <li><b>Full screen</b> fills the screen; Esc leaves.</li>
+          <li><b>↻ Refresh</b> loads the latest minute of traffic now instead of waiting for the next one.</li>
         </ul>
         <h3>Highlight</h3>
         <p>The legend shows every class with its requests in the last full minute. Click a class to light it up while the rest dim (show all). Turn on <b>Only the chosen class</b> to hide everything else. Click the class again to clear it.</p>
@@ -1130,6 +1138,8 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
 
   // ---------- render ----------
   let D, hours = 6;
+  try { const h = +sessionStorage.getItem("undertow-hours"); if ([1, 6, 24].includes(h)) hours = h; } catch (_) {}
+  document.querySelectorAll(".seg.time button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.h === hours));
 
   function kpis() {
     const k = D.kpis;
@@ -1596,15 +1606,21 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
   }
 
   const VIEWS = ["dashboard", "overview", "agents", "deception", "controls", "budget", "users", "help"];
+  // the open tab lives in the address (#tab) and in this browser tab's session, so a reload or a
+  // trip through sign-in comes back to it; a new session opens on the Dashboard
+  function remember(h) {
+    try { history.replaceState(null, "", "#" + h); } catch (_) {}
+    try { sessionStorage.setItem("undertow-tab", h); } catch (_) {}
+  }
   function showTab(name, sub) {
-    if (!VIEWS.includes(name) || (name === "users" && ME.role !== "admin")) name = "overview";
+    if (!VIEWS.includes(name) || (name === "users" && ME.role !== "admin")) name = "dashboard";
     VIEWS.forEach(v => {
       const t = document.getElementById("tab-" + v), el = document.getElementById("view-" + v);
       if (t) t.setAttribute("aria-selected", v === name);
       if (el) el.classList.toggle("hidden", v !== name);
     });
     if (name === "controls") showSub(sub || showSub.cur || "enf");
-    else try { history.replaceState(null, "", "#" + name); } catch (_) {}
+    else remember(name);
     if (name === "users") loadUsers();
     else if (D) { if (name === "agents") scoreChart(); if (name === "budget") budgetChart(); if (name === "overview") window.dispatchEvent(new Event("resize")); }
     document.dispatchEvent(new CustomEvent("undertow:tab", { detail: name }));   // the live scene starts or pauses
@@ -1614,7 +1630,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     showSub.cur = k;
     document.querySelectorAll("[data-subview]").forEach(v => v.classList.toggle("hidden", v.dataset.subview !== k));
     document.querySelectorAll(".subtabs button").forEach(b => b.setAttribute("aria-current", b.dataset.sub === k));
-    try { history.replaceState(null, "", "#controls/" + k); } catch (_) {}
+    remember("controls/" + k);
     if (k === "integ" && D) { loadKeys(); loadDests(); }
   }
 
@@ -2110,7 +2126,23 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
   document.querySelectorAll(".seg.time button").forEach(b => b.onclick = () => {
     document.querySelectorAll(".seg.time button").forEach(x => x.setAttribute("aria-pressed", x === b));
     hours = +b.dataset.h; D = null; refresh(false);
+    try { sessionStorage.setItem("undertow-hours", hours); } catch (_) {}
   });
+  // Refresh: the snapshot for every tab, plus what the open tab loads on its own
+  const rbtn = document.getElementById("refresh-now");
+  rbtn.onclick = async () => {
+    rbtn.disabled = true;
+    const cur = VIEWS.find(v => (document.getElementById("tab-" + v) || {}).getAttribute?.("aria-selected") === "true");
+    try {
+      await refresh(true);
+      if (cur === "users") await loadUsers();
+      if (cur === "controls" && showSub.cur === "integ") await Promise.all([loadKeys(), loadDests()]);
+      if (cur === "dashboard") document.dispatchEvent(new CustomEvent("undertow:refresh"));
+      toast(D && D.live ? `Refreshed. Data from ${esc(new Date(D.generated * 1000).toLocaleTimeString())}.`
+                        : "Demo data: there is no live feed to fetch here.");
+    } catch (_) { toast("Could not refresh. Try again in a moment."); }
+    finally { rbtn.disabled = false; }
+  };
   document.querySelectorAll("#mode-ctl button").forEach(b => b.onclick = () => {
     if (b.getAttribute("aria-pressed") === "true") return toast(`Already in <code>${esc(b.dataset.mode)}</code>.`);
     api({ action: "set_policy", policy: { mode: b.dataset.mode } });
@@ -2122,7 +2154,12 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
   VIEWS.forEach(v => { const t = document.getElementById("tab-" + v); if (t) t.onclick = () => showTab(v); });
   document.querySelectorAll(".subtabs button").forEach(b => b.onclick = () => showSub(b.dataset.sub));
   document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => showTab(b.dataset.goto));
-  { const [v, sub] = location.hash.slice(1).split("/"); if (v) showTab(v, sub); }
+  {
+    let h = location.hash.slice(1);
+    if (!h) try { h = sessionStorage.getItem("undertow-tab") || ""; } catch (_) {}
+    const [v, sub] = (h || "dashboard").split("/");
+    showTab(v, sub);
+  }
 
   const HELP = {
     "h-stream": "Live view of requests crossing the edge. Agents get pulled under; real users pass straight through.",

@@ -5,6 +5,8 @@ a real request the WAF saw, replayed about a minute after it happened. You watch
 from the internet, meet the Undertow line, and either pass into your app, bounce off, wait, crawl,
 or get pulled under into the padded cell.
 
+It is the tab the console opens on. Reloading the page keeps you on whichever tab you were on.
+
 ![The live Dashboard, showing demo traffic](images/dashboard.jpg)
 
 ## What the motion means
@@ -43,6 +45,8 @@ can show as padded cell up to a minute before the edge routes that IP there.
 - **Highlight.** Click a class in the legend to light it up while everything else dims ("Show
   all"), or switch to "Only the chosen class" to hide the rest.
 - **Full screen.** The Full screen button fills the display; Esc leaves.
+- **Refresh.** The scene's own ↻ Refresh loads the latest minute right away, in full screen too.
+  The ↻ Refresh at the top of the console does the same for whichever tab is open.
 
 The layout is saved in your browser, so each operator keeps their own view.
 
