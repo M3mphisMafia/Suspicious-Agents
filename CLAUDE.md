@@ -1,6 +1,6 @@
-# Suspicious Agents 1.0: install handoff for Claude
+# Suspicious Agents: install handoff for Claude
 
-This repo is **Suspicious Agents** 1.0, V1 of the **Undertow Security** platform, from
+This repo is **Suspicious Agents**, V1 of the **Undertow Security** platform, from
 M3mphisMafia, under the Apache License 2.0. Undertow Security defends live web apps against
 autonomous AI attack agents (ARTEX and its forks) and bot floods. It detects agents by how they
 behave, deceives them with a fake copy of the app that answers slowly, and drains their token

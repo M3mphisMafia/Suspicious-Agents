@@ -15,9 +15,11 @@ and keeps your real app running.
 [![tests](https://github.com/M3mphisMafia/Suspicious-Agents/actions/workflows/tests.yml/badge.svg)](https://github.com/M3mphisMafia/Suspicious-Agents/actions/workflows/tests.yml)
 · License: [Apache 2.0](LICENSE) · [Changelog](CHANGELOG.md) · [Install guide](CLAUDE.md) · [Security policy](SECURITY.md)
 
-**New in 1.0:** flood mode and AWS managed edge rules against bot floods, protection for apps on
-their own CloudFront distributions, and a Budget page with a $100 alarm (a typical install runs
-about $50 a month). See the [changelog](CHANGELOG.md).
+**New in 1.2:** the console opens on the live Dashboard (added in 1.1), a full-screen scene of the
+edge; it keeps your tab across a reload and has Refresh buttons. **From 1.0:** flood mode and AWS
+managed edge rules against bot floods, protection for apps on their own CloudFront distributions,
+and a Budget page with a $100 alarm (a typical install runs about $50 a month). See the
+[changelog](CHANGELOG.md).
 
 ![The Undertow Security dashboard, showing demo data](docs/images/dashboard.jpg)
 
