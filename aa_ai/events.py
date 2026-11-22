@@ -87,6 +87,7 @@ def parse_waf(rec: dict) -> Event:
     extra = {"labels": [lb.get("name", "") for lb in rec.get("labels") or []],
              "request_id": req.get("requestId", ""), "action": rec.get("action", ""),
              "rule": rec.get("terminatingRuleId", ""),     # which web ACL rule stopped it (flood cost guard)
+             "country": req.get("country", ""),
              "honey": honey_token(" ".join([req.get("args", ""), hdrs.get("authorization", ""),
                                             hdrs.get("cookie", "")])),
              "spoof": spoofed_browser(hdrs)}

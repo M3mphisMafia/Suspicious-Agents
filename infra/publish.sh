@@ -12,9 +12,7 @@ EDGE_OUT="${CODEBUILD_SRC_DIR_EdgeOut:-/nonexistent}/outputs.json"
 eo() { if [[ -f "$EDGE_OUT" ]]; then jq -r --arg k "$1" '.[$k] // empty' "$EDGE_OUT"; else out "$EDGE_STACK" "$1"; fi; }
 
 DASH=$(eo DashboardBucketName); DECOY=$(eo DecoyBucketName); DOM=$(eo DistributionDomain)
-for page in index login; do
-  aws s3 cp "dashboard/$page.html" "s3://$DASH/_undertow/$page.html" --content-type text/html --cache-control no-store
-done
+bash infra/upload_dashboard.sh "$DASH"     # every page, script and stylesheet
 # public sign-in settings (pool and client IDs are not secrets)
 printf '{"region":"%s","userPoolId":"%s","clientId":"%s"}' "${AWS_REGION:-us-east-1}" "$(eo UserPoolId)" "$(eo UserPoolClientId)" \
   | aws s3 cp - "s3://$DASH/_undertow/config.json" --content-type application/json --cache-control no-store

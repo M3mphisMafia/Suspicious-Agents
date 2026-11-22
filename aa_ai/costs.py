@@ -53,7 +53,7 @@ PRICES = {
 }
 SECRETS = 4                  # (A) the canary key in the edge stack + 3 in the store
 VPC_ENDPOINT_AZS = 1         # the store's Secrets Manager endpoint sits in one subnet
-SNAPSHOT_PUTS_PER_HOUR = 180  # three dashboard files every minute
+SNAPSHOT_PUTS_PER_HOUR = 240  # four dashboard files every minute (three windows and live.json)
 GB = 1024 ** 3
 TYPICAL_MONTH = 50           # what a typical install costs, for the page's note
 CE_CALLS_PER_DAY = 2

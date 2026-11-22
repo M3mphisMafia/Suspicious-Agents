@@ -97,6 +97,7 @@ The engine is Undertow; the builds are its songbook.
 | `aa_ai/verify.py` | Verified agents: integration keys, Web Bot Auth signatures (Ed25519), real crawlers by reverse DNS. Style is never held against them; attacks still are |
 | `aa_ai/reputation.py` | IP reputation enrichment: tags *where* a client comes from (datacenter/cloud ranges, Tor exit nodes, GreyNoise/AbuseIPDB feeds). A **secondary** signal — STYLE, capped below tarpit — so a bad IP corroborates a verdict but never gates alone. Every feed fails open; results cached per IP ([docs](docs/aws-edge-shield.md#ip-reputation)) |
 | `aa_ai/campaigns.py` | Links IP- and UA-rotating actors that run one tool down one path, and judges their requests together |
+| `aa_ai/live.py`, `dashboard/live.js` | The Dashboard tab: a live, full-screen scene of requests crossing the edge, from a small per-batch sample (rare kinds first) the 1-minute tick turns into `data/live.json`. Drag-and-drop lanes and widgets, class highlighting; admins only ([docs](docs/aws-edge-shield.md#live-feed-the-dashboard-tab)) |
 | `aa_ai/costs.py` | The Budget page: an hourly cost estimate from the engine's own CloudWatch usage at list prices, checked once a day against the bill (Cost Explorer, at most 2 calls a day), exact by the `undertow=engine` cost allocation tag or account-wide ([docs](docs/aws-edge-shield.md#budget-page)) |
 | `aa_ai/flood.py` | Flood mode: blunts layer-7 bot floods spread over many IPs. Statistics spot the surge and block the IPs driving it at the edge (never the padded cell); the LLM only picks one narrow edge rule from observed values, under guardrails enforced in code ([docs](docs/aws-edge-shield.md#flood-mode)) |
 | `aa_ai/mirror.py` | Teaches the padded cell the real app's routes, shapes, errors and timing from a fixed set of requests |
@@ -145,6 +146,8 @@ and request details are personal data in some jurisdictions; this is how long ea
 | Per-actor request events (IP, path, user agent, status) | 6 hours |
 | Verdict flags | 1 hour (tarpit), 24 hours (block), 15 minutes (flood) |
 | Watch list and per-minute rate counters | 1 hour |
+| Live sample for the Dashboard tab (IP, path, class, country, agent tag; at most 40 requests per log batch) | 2 hours |
+| The Dashboard's live file (`data/live.json`, the last 3 minutes of that sample) | replaced every minute |
 | IP reputation cache | 3 to 6 hours |
 | Hourly and per-minute stats | 26 hours |
 | Decoy hits, agent tags, moves on the board, user-agent tallies | 7 days |

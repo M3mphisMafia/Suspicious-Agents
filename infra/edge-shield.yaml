@@ -875,7 +875,9 @@ Resources:
                 Resource: !GetAtt ScorerTable.Arn
               - Effect: Allow
                 Action: s3:PutObject
-                Resource: !Sub "${DashboardBucket.Arn}/data/data-*.json"
+                Resource:
+                  - !Sub "${DashboardBucket.Arn}/data/data-*.json"
+                  - !Sub "${DashboardBucket.Arn}/data/live.json"   # the Dashboard tab's live scene
               - Effect: Allow
                 Action: [wafv2:GetIPSet, wafv2:UpdateIPSet, wafv2:GetRegexPatternSet, wafv2:UpdateRegexPatternSet]
                 Resource:
@@ -1287,6 +1289,9 @@ Resources:
               - Effect: Allow
                 Action: [s3:PutObject, s3:GetObject]
                 Resource: !Sub "${DashboardBucket.Arn}/data/data-*.json"
+              - Effect: Allow   # the live scene's feed: read only, served to admins
+                Action: s3:GetObject
+                Resource: !Sub "${DashboardBucket.Arn}/data/live.json"
               - Effect: Allow
                 Action: [cognito-idp:ListUsers, cognito-idp:ListUsersInGroup, cognito-idp:AdminGetUser,
                          cognito-idp:AdminCreateUser, cognito-idp:AdminDeleteUser, cognito-idp:AdminDisableUser,

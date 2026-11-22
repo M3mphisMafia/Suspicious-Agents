@@ -412,6 +412,35 @@ The dashboard's **Budget** tab (`aa_ai/costs.py`).
   `"*"` (none of them supports resource-level permissions), and reads the web ACL. The page prices
   both functions (`COST_FUNCTIONS` on the tick lists the log-batch scorer).
 
+## Live feed (the Dashboard tab)
+
+The Dashboard tab replays a sample of real requests as lights (`aa_ai/live.py`, `dashboard/live.js`).
+
+- **Sampled at ingest.** Each log batch keeps a stratified reservoir of at most 40 requests: 16
+  rare (decoy and honey hits, known agents' IPs, challenges, verified clients), 8 from flood sources,
+  16 of everything else. That is a few CPU steps per request and no I/O. Only the kept requests are
+  classified (`allow`, `verified`, `watch`, `challenge`, `tarpit`, `cell`, `block`, `flood`,
+  `decoy`) and given an aspect (`login`, `api`, `search`, `checkout`, `admin`, `decoys`, `static`,
+  `other`), from the WAF action and terminating rule, the active flags, the flood set and the
+  verified result. The batch writes **one** row, `LIVE#<minute>` / `<time>#<id>` (at most about
+  5 KB, 2-hour TTL), with each request's time, class, host, aspect, method, path (no query, 60
+  characters), country, agent tag (never the raw key), IP and weight. Once a minute already holds
+  400 sampled requests, further batches skip the row; the check rides on the `STATM` update the
+  batch already makes. Under a surge the sample stays at 40 a batch like everything else.
+- **Assembled on the tick.** `TickFunction` reads the last 3 minutes and writes `data/live.json` to
+  the dashboard bucket: at most 300 requests, newest first, taken round-robin across classes so a
+  rare class still shows, plus per-class and per-aspect counts for the last full minute (the
+  sample's weighted mix times that minute's real request count), the mode and the apps seen.
+- **Served to admins only.** `GET /_undertow/api/data/live` goes through the same Cognito JWT check
+  as the other data files, but only the `admin` role (with MFA) gets it, because it is per-request
+  data with IPs. `data/` is never served by CloudFront. Viewers, and the page opened from disk, get
+  synthetic demo traffic from documentation IP ranges, labeled as demo.
+- **Cost.** At most about 5 write units per log batch and 50 a minute, one more S3 write a minute,
+  and the tick's read of a few rows: well under $2 a month even at the cap.
+- **Why not Firehose.** The scene needs a few hundred representative requests a minute, which a
+  DynamoDB row per batch gives for cents. Firehose (or WAF logging straight to S3) is what you would
+  add to keep or replay *every* request: full retention, forensic replay, or a data lake.
+
 ## Still to build
 
 - CloudTrail metric filter on the canary access key ID.

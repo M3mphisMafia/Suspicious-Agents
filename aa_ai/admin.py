@@ -351,7 +351,7 @@ def handle(event: dict, table, waf, cfg, publish=None, read_data=None, cog=None,
             except Exception:  # noqa: BLE001
                 mfa = None
         return _resp(200, {"email": claims["email"], "role": role, "mfa": mfa})
-    if method == "GET" and "/data/" in path:
+    if method == "GET" and "/data/" in path and not path.endswith("/data/live"):
         h = path.rsplit("/", 1)[-1]
         if h not in ("1", "6", "24") or not read_data:
             return _resp(404, {"error": "not found"})
@@ -383,6 +383,11 @@ def handle(event: dict, table, waf, cfg, publish=None, read_data=None, cog=None,
         body = json.loads(base64.b64decode(raw) if event.get("isBase64Encoded") else raw or "{}") if method == "POST" else {}
         if method == "GET" and path.endswith("/users"):
             return _resp(200, {"users": users.list_users(cog, pool)})
+        if method == "GET" and path.endswith("/data/live"):
+            # per-request sample with IPs: admins only (and MFA), unlike the summary files
+            body = read_data("live") if read_data else ""
+            return {"statusCode": 200, "headers": {"content-type": "application/json", "cache-control": "no-store"},
+                    "body": body} if body else _resp(404, {"error": "no live feed yet"})
         if method == "GET" and path.endswith("/keys"):
             return _resp(200, {"keys": list_keys(table)})
         if method == "GET" and path.endswith("/destinations"):
@@ -433,7 +438,8 @@ def handler(event, _context):
 
     def _read(h: str) -> str:
         try:
-            return s3.get_object(Bucket=bucket, Key=f"{DATA_PREFIX}data-{h}.json")["Body"].read().decode()
+            key = f"{DATA_PREFIX}live.json" if h == "live" else f"{DATA_PREFIX}data-{h}.json"
+            return s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode()
         except Exception:  # noqa: BLE001
             return ""
 

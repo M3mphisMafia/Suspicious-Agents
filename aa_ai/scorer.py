@@ -37,7 +37,7 @@ import time
 from collections import Counter, defaultdict
 from decimal import Decimal
 
-from . import alerts, campaigns, detectors, flood, moves
+from . import alerts, campaigns, detectors, flood, live, moves
 from .events import Event, decoy_tag, honey_token, parse_waf
 from .scoring import BLOCK, TARPIT, WATCH, actor_key, combine, evaluate, verdict
 
@@ -436,6 +436,8 @@ def ingest(events: list[Event], table, cfg: Config, now: float | None = None,
     rate: Counter = Counter()
     prof: Counter | None = Counter() if surge else None
     kept = []
+    sampler = live.Sampler()          # the Dashboard tab's sample: O(1) per request, no I/O
+    agent_ips = {ip for f in active.values() if not f.get("flood") for ip in f.get("ips", [])}
     for e in events:          # pass 1: counters only, one cheap step per request
         if e.path.startswith(DASHBOARD_PATH) or _allowed(cfg, e.src_ip, allows):
             continue
@@ -455,6 +457,7 @@ def ingest(events: list[Event], table, cfg: Config, now: float | None = None,
         uas[e.user_agent] += 1
         hosts[(e.host or "").lower().split(":")[0][:100]] += 1
         kept.append((e, guarded, counted))
+        sampler.offer(live.stratum(e, guarded, agent_ips), (e, guarded))
     totals = flood.record(table, now, rate, prof) if rate else {}
     per_ip = int(fp_["per_ip_rpm"])
     # During a surge only: a source past per_ip_rpm this minute is counted, not stored again.
@@ -497,7 +500,9 @@ def ingest(events: list[Event], table, cfg: Config, now: float | None = None,
     if stat["req"]:
         _add(table, "STAT", hour_key(now), int(now + STAT_TTL), req=stat["req"], actors=len(touched), r429=stat["r429"],
              verified=stat["verified"], reputation=stat["reputation"])
-        _add(table, "STATM", minute_key(now), int(now + STAT_TTL), **{k: v for k, v in stat.items()})
+        stat["live"] = len(sampler)
+        live_room = int(_add(table, "STATM", minute_key(now), int(now + STAT_TTL), ret=True,
+                             **{k: v for k, v in stat.items()}).get("live", 0)) - len(sampler) < live.PER_MINUTE
         for ua, n in list(uas.items())[:50]:
             _seen_ua(table, ua, n, now)
         for host, n in sorted(hosts.items(), key=lambda h: -h[1])[:20]:   # per-app traffic for the dashboard
@@ -508,6 +513,7 @@ def ingest(events: list[Event], table, cfg: Config, now: float | None = None,
     flags = []
     scored, fps = [], set()
     order, deferred, stopped = list(touched.items()), 0, False
+    watched: set[str] = set()
     if surge and len(order) > SURGE_MAX_RESCORE:
         # decoy hits first, then the busiest; the rest are rescored with their next batch
         order.sort(key=lambda kv: (kv[0] not in decoy_hits, -len(kv[1])))
@@ -566,6 +572,7 @@ def ingest(events: list[Event], table, cfg: Config, now: float | None = None,
         v = verdict(score, thr)
         if v not in ("tarpit", "block"):
             if v == "watch":  # dashboard only; never reaches the WAF block sets
+                watched.add(key)
                 table.put_item(Item={"pk": "WATCH", "sk": key, "score": Decimal(str(score)), "app": app,
                                      "ips": sorted({e.src_ip for e in evs})[-10:],
                                      "signals": [s.name for s in sigs], "exp": int(now + WATCH_TTL)})
@@ -620,10 +627,34 @@ def ingest(events: list[Event], table, cfg: Config, now: float | None = None,
                              "signals": flag["signals"], "ips": flag["ips"][:10]}))
     for t, ip, via in links:
         _link(table, _tag_owner(table, t), ip, via, now)
+    if stat["req"] and live_room:
+        _live_row(table, sampler, active, flags, watched, policy, now)
     report.update(surge=surge, skipped=skipped, deferred=deferred, stopped=stopped)
     if skipped or deferred:
         log.info(json.dumps({"event": "ingest_bounded", **report}))
     return flags
+
+
+def _live_row(table, sampler, active: dict, flags: list[dict], watched: set, policy: dict, now: float):
+    """One LIVE row per batch for the Dashboard tab. Only the sampled requests are classified."""
+    try:
+        agents = [f for f in [*active.values(), *flags] if not f.get("flood")]
+        verdict = {f["sk"]: f["verdict"] for f in agents}     # this batch's flags win over older ones
+        by_ip: dict[str, str] = {}
+        for f in agents:
+            for ip in f.get("ips", []):
+                if by_ip.get(ip) != "block":
+                    by_ip[ip] = f["verdict"]
+        cell = {ip for f in agents if f["verdict"] == "block" for ip in f.get("ips", [])} \
+            if policy.get("edge") == "cell" else set()
+        sample = []
+        for (e, guarded), w in sampler.items():
+            k = actor_key(e)
+            cls = live.classify(e, guarded, verdict.get(k) or by_ip.get(e.src_ip, ""), k in watched, cell)
+            sample.append(live.compact(e, cls, w))
+        table.put_item(Item=live.row(sample, now, minute_key(now)))
+    except Exception as exc:  # noqa: BLE001 - the dashboard's sample never breaks scoring
+        log.warning(json.dumps({"event": "live_sample_failed", "error": str(exc)[:200]}))
 
 
 # ---------- desired WAF state ----------
@@ -1092,6 +1123,11 @@ def tick_handler(event, context=None):
     policy = load_policy(table, cfg)
     bucket = os.environ.get("DASHBOARD_BUCKET", "")
     files = publish(table, boto3.client("s3"), bucket, policy) if bucket else []
+    if bucket and not _late(deadline):
+        try:   # the Dashboard tab's live scene: the last few minutes of sampled requests
+            files.append(live.publish(table, boto3.client("s3"), bucket, policy))
+        except Exception as exc:  # noqa: BLE001 - the scene never breaks the tick
+            log.warning(json.dumps({"event": "live_publish_failed", "error": str(exc)[:200]}))
     check_anomalies(table, policy)
     trip = None
     if int(time.time() // 60) % 5 == 0 and not _late(deadline):   # every 5 minutes

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 (2026-11-21)
+
+**The Dashboard tab: a live, full-screen scene of the edge.**
+- Every request the edge sees can become a light: in from the internet, through the Undertow line,
+  into your app's lanes. Allowed traffic flows in, challenges wait at the line, tarpits crawl,
+  blocks and floods bounce off, decoy hits are diverted up, and agents in the padded cell are pulled
+  down into it. Hover a light for its details.
+- Drag app aspects and protected apps onto the scene as lanes, drag stat widgets anywhere, and
+  highlight one class of traffic. The layout is saved per viewer. Full screen, keyboard reachable,
+  a text view, and a still view for reduced motion.
+- Fed by a small sample, not every request: each log batch keeps at most 40 requests (rare kinds
+  first) in a 2-hour `LIVE` row, and the 1-minute tick writes the last 3 minutes to `data/live.json`.
+  No Firehose. The feed carries IP addresses, so only admins receive it; everyone else sees labeled
+  demo traffic.
+- `infra/upload_dashboard.sh` publishes every dashboard file with its content type.
+
 ## 1.0.1 (2026-11-21)
 
 Launch tidy-up.

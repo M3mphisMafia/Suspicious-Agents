@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "undertow-security"
-version = "1.0.1"
+version = "1.1.0"
 description = "Undertow Security: detect, deceive and drain autonomous AI attack agents (ARTEX-class)"
 readme = "README.md"
 license = "Apache-2.0"

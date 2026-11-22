@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="live.css">
+<script src="live.js" defer></script>
 <style>
 :root {
   color-scheme: dark;
@@ -356,6 +358,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" id="tab-dashboard" aria-selected="false" aria-controls="view-dashboard">Dashboard</button>
     <button role="tab" id="tab-overview" aria-selected="true" aria-controls="view-overview">Overview</button>
     <button role="tab" id="tab-agents" aria-selected="false" aria-controls="view-agents">Agents</button>
     <button role="tab" id="tab-deception" aria-selected="false" aria-controls="view-deception">Deception</button>
@@ -392,6 +395,12 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     </div>
   </section>
 
+  <div id="view-dashboard" class="view hidden" role="tabpanel" aria-labelledby="tab-dashboard">
+    <section class="card c12 lv" id="lv" aria-labelledby="h-live">
+      <h2 id="h-live">Live dashboard</h2>
+      <div id="lv-root"><p class="sub">The live scene needs <code>live.js</code>; publish the whole dashboard folder.</p></div>
+    </section>
+  </div>
   <div id="view-overview" class="view" role="tabpanel" aria-labelledby="tab-overview">
   <section class="kpis" aria-label="Key numbers">
     <div class="card kpi"><div class="l">Requests inspected</div><div class="v" id="k-req">-</div><div class="d" id="k-req-d"></div></div>
@@ -799,6 +808,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
       <div class="doc">
         <h3>Reading the attack</h3>
         <ul>
+          <li><b>Dashboard</b> — the live scene: requests as lights crossing the edge into your app, for a big screen. Admins see the live feed; see <b>Dashboard</b> below.</li>
           <li><b>Overview</b> — the glance: requests inspected, agents flagged, decoy hits, attacker time burned, the live-traffic view, the Allow → Watch → Tarpit → Block ladder, out-of-norm alerts, the padded-cell count, and flood mode.</li>
           <li><b>Agents</b> — each flagged attacker: score, verdict, the detectors that fired, a score-over-time chart, detector accuracy, and the Judge's verdicts.</li>
           <li><b>Deception</b> — the padded cell (who is trapped, requests absorbed, agent-minutes wasted, tokens burned) and the board of their move → our counter.</li>
@@ -819,6 +829,40 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
         <p>The attack runs from a separate test runner with its own IP, outside the app. Drive its intensity from 0 to 6 (0 off · 5 fast · 6 flood). The dashboard shows its effect; it never connects to the agent.</p>
         <h3>Protecting other apps</h3>
         <p>One engine can protect other apps on their own CloudFront distributions. Each one shares the engine's web ACL, cell router and padded cell (<code>infra/protect-app.yaml</code>), so its traffic is scored, blocked and moved into the cell by the same rules, flood mode included. List each app in <code>infra/apps.json</code>; it then shows by its host under Controls → Integrations.</p>
+      </div>
+    </section>
+
+    <section class="card c12" aria-labelledby="h-live-man">
+      <h2 id="h-live-man">Dashboard</h2>
+      <div class="doc">
+        <h3>What you are looking at</h3>
+        <p>Each light is one request. It comes in from the internet on the left, meets the Undertow line, and what happens next shows what Undertow did with it. The right side is your app, split into lanes.</p>
+        <ul>
+          <li><b>Allowed</b> (gray) and <b>verified</b> (lime ring): flow straight into their lane.</li>
+          <li><b>Watch</b> (teal glow): passes, but Undertow is watching it.</li>
+          <li><b>Challenge</b> (blue): waits at the line for the silent browser check, then passes.</li>
+          <li><b>Tarpit</b> (ochre): crawls through slowly.</li>
+          <li><b>Blocked</b> (magenta): bounces off the line. <b>Flood</b> (magenta squares): breaks on the line as a wave.</li>
+          <li><b>Decoy hit</b> (purple): diverted up into the decoys. No real user goes there.</li>
+          <li><b>Padded cell</b> (violet): pulled down, the undertow, into the padded cell pool at the bottom.</li>
+        </ul>
+        <p>Colors are a second cue, never the only one: every class also has its own motion and place, a label in the legend, and a tooltip. Hover a light for its time, class, app, aspect, method and path, country, agent tag and IP; click to pin it.</p>
+        <h3>Make it yours</h3>
+        <ul>
+          <li><b>Add to the scene</b> opens a drawer. Drag an app aspect (login, API, search, checkout, admin, pages, other) or one of your protected apps onto the app side to give it a lane; anything without a lane flows into <b>Everything else</b>. Move lanes with the arrows or by dragging, and remove them with ✕.</li>
+          <li>Drag widgets (requests per minute, agents flagged, in the padded cell, tokens burned, flood mode, budget this month, top agents, recent moves, decoy hits) anywhere on the scene. Drag a widget by its title, or focus it and use the arrow keys; Delete removes it.</li>
+          <li>Your layout is saved in this browser for your account. <b>Reset layout</b> brings back the default.</li>
+          <li><b>Full screen</b> fills the screen; Esc leaves.</li>
+        </ul>
+        <h3>Highlight</h3>
+        <p>The legend shows every class with its requests in the last full minute. Click a class to light it up while the rest dim (show all). Turn on <b>Only the chosen class</b> to hide everything else. Click the class again to clear it.</p>
+        <h3>What it is, and is not</h3>
+        <ul>
+          <li><b>A sample, not every request.</b> Each batch of WAF logs keeps at most 40 requests, rare kinds first (decoy hits, known agents, challenges, verified clients), so a quiet minute and a flood both look right. The density follows the real counts for the minute.</li>
+          <li><b>One to two minutes behind.</b> WAF logs reach Undertow within a minute or so, and the scene refreshes once a minute and replays the latest minute at its real pace.</li>
+          <li><b>Admins only.</b> The live feed carries IP addresses, so only admins (signed in with an authenticator app) receive it. Everyone else, and the page opened from disk, sees synthetic demo traffic from documentation IP ranges, labeled as such.</li>
+          <li>The samples are kept for 2 hours. With reduced motion turned on in your system, the scene stays still and shows the counts instead.</li>
+        </ul>
       </div>
     </section>
 
@@ -1551,7 +1595,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     } catch (_) { setErr("users-err", "Could not reach the API."); return false; }
   }
 
-  const VIEWS = ["overview", "agents", "deception", "controls", "budget", "users", "help"];
+  const VIEWS = ["dashboard", "overview", "agents", "deception", "controls", "budget", "users", "help"];
   function showTab(name, sub) {
     if (!VIEWS.includes(name) || (name === "users" && ME.role !== "admin")) name = "overview";
     VIEWS.forEach(v => {
@@ -1563,6 +1607,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     else try { history.replaceState(null, "", "#" + name); } catch (_) {}
     if (name === "users") loadUsers();
     else if (D) { if (name === "agents") scoreChart(); if (name === "budget") budgetChart(); if (name === "overview") window.dispatchEvent(new Event("resize")); }
+    document.dispatchEvent(new CustomEvent("undertow:tab", { detail: name }));   // the live scene starts or pauses
   }
   function showSub(k) {
     if (!document.querySelector(`[data-subview="${k}"]`)) k = "enf";
@@ -2052,6 +2097,7 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     kpis(); controls(); ladder(); norm(); watchlist(); board(); tuning(); edgeControls(); alertsPanel(); judgePanel(); cellPanel(); floodPanel(); budgetPanel(); verifiedPanel(); reputationPanel(); campaignsPanel(); appsPanel(); appFilter();
     scoreChart(); feed(freshFeed); blocks(); detectors(); strips(); audit();
     adminState();   // last: re-renders above rebuild inputs that viewers must not change
+    document.dispatchEvent(new CustomEvent("undertow:data"));
   }
 
   async function refresh(freshFeed) {
@@ -2083,6 +2129,8 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
     "h-ladder": "How many actors sit at each level right now: Allow (trusted), Watch (suspicious), Tarpit (slowed), Block (stopped at the edge).",
     "h-norm": "Traffic in the last 5 minutes vs the previous 24 hours. A spike in refusals or API-map reads flags an attack in progress.",
     "h-ovcell": "How many confirmed agents are trapped in the fake app right now, and how many of their requests it has absorbed.",
+    "h-live": "Live requests as lights: in from the internet, through the Undertow line, into your app. Allowed flow in, challenges wait, tarpits crawl, blocks and floods bounce, decoy hits go up, agents in the padded cell are pulled down. A sample, about 1 to 2 minutes behind; admins see the live feed, others see demo traffic.",
+    "h-live-man": "What each motion means, drag and drop, highlighting a class, the delay, and why it is a sample.",
     "h-bud-daily": "Estimated cost per day this month, stacked by service group. The dashed line is the budget's daily pace: $100 a month spread evenly. Hover a day for its numbers; Table lists them all.",
     "h-bud-svc": "This month's estimated cost by service, from the engine's own usage at list prices. The firewall is most of it.",
     "h-bud-ver": "Once a day the estimate is checked against the real bill from Cost Explorer, by service, for the same days. Exact: only resources tagged undertow=engine. Account-wide: the same services across the whole account, so other workloads count too.",
@@ -2288,6 +2336,9 @@ td.num { font-family: var(--mono); font-size: 12px; text-align: right; }
   if (reduced) { for (let i = 0; i < 120; i++) { spawn(); parts[i].x = Math.random() * Wc; } }
   frame();
 
+  // the Dashboard tab's scene (live.js, loaded deferred) reads these
+  window.Undertow = { get data() { return D; }, get live() { return LIVE && !!AUTH; }, get role() { return ME.role; },
+                      get email() { return ME.email; }, call, esc, fmt };
   refresh(false);
 })();
 </script>

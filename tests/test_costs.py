@@ -105,7 +105,7 @@ def test_hour_cost_prices_each_line():
     assert c["cloudwatch"] == pytest.approx(0.50 + 0.01)
     assert c["apigateway"] == pytest.approx(1.0) and c["model"] == pytest.approx(4.0 + 2.0)
     assert c["vpc"] == pytest.approx(0.01) and c["secrets"] == pytest.approx(4 * 0.40 / 720)
-    assert c["s3"] == pytest.approx(180 * 0.005 / 1000) and c["cloudfront"] == 0.0
+    assert c["s3"] == pytest.approx(costs.SNAPSHOT_PUTS_PER_HOUR * 0.005 / 1000) and c["cloudfront"] == 0.0
     arm = costs.hour_cost({**u, "lambda": {"f": [0, 100_000_000, 512, "arm64"]}}, 720)["lambda"]
     assert arm == pytest.approx(100_000 * 0.5 * 0.0000133334)
     # a month of fixed WAF charges with no traffic: web ACL + 20 rules + the anti-DDoS group
